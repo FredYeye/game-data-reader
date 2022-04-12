@@ -49,7 +49,8 @@ struct GuiState
 #[derive(PartialEq)]
 enum Games
 {
-    Gradius3Snes, ParodiusSnes,
+    Gradius3Snes, Gradius3JpSnes,
+    ParodiusSnes,
     GhoulsArcade,
 }
 
@@ -60,6 +61,7 @@ impl Games
         match self
         {
             Games::Gradius3Snes => rank,
+            Games::Gradius3JpSnes => rank,
             Games::ParodiusSnes => rank,
             Games::GhoulsArcade => rank >> 3,
         }
@@ -145,6 +147,15 @@ fn valid_games() -> Vec<GameData>
         {
             id: Games::Gradius3Snes,
             name: String::from("Gradius III"),
+            emulator: Emulator::Bsnes,
+            rank_offset: 0x0084,
+            rank_values: 16,
+        },
+
+        GameData //bad solution but ok for now
+        {
+            id: Games::Gradius3JpSnes,
+            name: String::from("Gradius III (Japan)"),
             emulator: Emulator::Bsnes,
             rank_offset: 0x0084,
             rank_values: 16,
