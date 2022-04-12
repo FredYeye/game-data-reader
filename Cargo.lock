@@ -60,17 +60,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 
 [[package]]
-name = "bsnes-read"
-version = "0.1.0"
-dependencies = [
- "egui",
- "gl",
- "gl_generator",
- "glutin",
- "windows",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,6 +327,17 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "game-data-reader"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "gl",
+ "gl_generator",
+ "glutin",
+ "windows",
+]
 
 [[package]]
 name = "getrandom"
