@@ -1,0 +1,27 @@
+[package]
+name = "bsnes-read"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+glutin = "0.28.0"
+egui = "0.17.0"
+gl = "0.14.0"
+
+[dependencies.windows]
+version = "0.34.0"
+features = [
+    "alloc",
+    "Data_Xml_Dom",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_ProcessStatus",
+]
+
+[build-dependencies]
+gl_generator = "0.14.0"
