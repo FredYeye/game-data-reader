@@ -1,11 +1,11 @@
 use windows::{
     Win32::{
-        Foundation::{HANDLE, HINSTANCE},
+        Foundation::{HANDLE, HINSTANCE, CloseHandle, STILL_ACTIVE},
         UI::WindowsAndMessaging::{FindWindowA, GetWindowThreadProcessId},
         System::Diagnostics::Debug::ReadProcessMemory,
         System::{
-            Threading::{OpenProcess, PROCESS_VM_READ, PROCESS_QUERY_INFORMATION},
-            ProcessStatus::{K32EnumProcessModules, K32GetModuleInformation, MODULEINFO},
+            Threading::{OpenProcess, PROCESS_VM_READ, PROCESS_QUERY_INFORMATION, GetExitCodeProcess},
+            ProcessStatus::{K32EnumProcessModules, K32GetModuleInformation, MODULEINFO, K32EnumProcesses, K32GetModuleBaseNameA},
         },
     },
     core::PCSTR,
@@ -36,7 +36,7 @@ pub struct EguiState
 
 struct GuiState
 {
-    p_handle: HANDLE,
+    handle: HANDLE,
     offset: u64,
     handle_timer: i8,
     memory_read_timer: i8,
@@ -49,7 +49,7 @@ struct GuiState
 #[derive(PartialEq)]
 enum Games
 {
-    Gradius3Snes, Gradius3JpSnes,
+    Gradius3Snes,
     ParodiusSnes,
     GhoulsArcade,
 }
@@ -60,10 +60,51 @@ impl Games
     {
         match self
         {
-            Games::Gradius3Snes => rank,
-            Games::Gradius3JpSnes => rank,
-            Games::ParodiusSnes => rank,
+            Games::Gradius3Snes | Games::ParodiusSnes => rank,
             Games::GhoulsArcade => rank >> 3,
+        }
+    }
+
+    fn bsnes_game_name(name: &str) -> Option<Self>
+    {
+        match name
+        {
+            "gradius 3" => Some(Games::Gradius3Snes),
+            "PARODIUS" => Some(Games::ParodiusSnes),
+            _ => None,
+        }
+    }
+
+    fn game_info(&self) -> GameData
+    {
+        match self
+        {
+            Self::Gradius3Snes => GameData
+            {
+                id: Games::Gradius3Snes,
+                name: String::from("Gradius III"), //unused
+                // emulator: Emulator::Bsnes,
+                rank_offset: 0x0084,
+                rank_values: 16,
+            },
+
+            Self::ParodiusSnes => GameData
+            {
+                id: Games::ParodiusSnes,
+                name: String::from("Parodius Da! - Shinwa kara Owarai e (japan)"), //unused
+                // emulator: Emulator::Bsnes,
+                rank_offset: 0x0088,
+                rank_values: 32,
+            },
+
+            Self::GhoulsArcade => GameData
+            {
+                id: Games::GhoulsArcade,
+                name: String::from("Daimakaimura (Japan) [daimakai] - MAME 0.242 (LLP64)"),
+                // emulator: Emulator::Mame,
+                rank_offset: 0x092A,
+                rank_values: 16,
+            },
         }
     }
 }
@@ -71,15 +112,15 @@ impl Games
 #[derive(PartialEq)]
 enum Emulator
 {
-    Mame,
     Bsnes,
+    Mame,
 }
 
 struct GameData
 {
     id: Games,
     name: String,
-    emulator: Emulator,
+    // emulator: Emulator,
     rank_offset: u16,
     rank_values: u8,
 }
@@ -94,7 +135,7 @@ fn main()
 
     let mut gui_state = GuiState
     {
-        p_handle: HANDLE::default(),
+        handle: HANDLE::default(),
         offset: 0,
         handle_timer: 0,
         memory_read_timer: 0,
@@ -119,8 +160,15 @@ fn main()
             frame_time -= std::time::Duration::from_micros(33333);
 
             egui_state.ctx.begin_frame(egui_state.raw_input.take());
-            find_game(&mut gui_state);
-            update(&mut gui_state);
+
+            match gui_state.current_game
+            {
+                Some(_) => update(&mut gui_state),
+                None => find_game(&mut gui_state),
+            }
+
+            // find_game(&mut gui_state);
+            // update(&mut gui_state);
             create_ui(&mut egui_state.ctx, &mut gui_state); // add panels, windows and widgets to `egui_ctx` here
             let full_output = egui_state.ctx.end_frame();
             let clipped_meshes = egui_state.ctx.tessellate(full_output.shapes); // create triangles to paint
@@ -139,87 +187,116 @@ fn main()
     });
 }
 
-fn valid_games() -> Vec<GameData>
-{
-    vec!
-    [
-        GameData
-        {
-            id: Games::Gradius3Snes,
-            name: String::from("Gradius III"),
-            emulator: Emulator::Bsnes,
-            rank_offset: 0x0084,
-            rank_values: 16,
-        },
-
-        GameData //bad solution but ok for now
-        {
-            id: Games::Gradius3JpSnes,
-            name: String::from("Gradius III (Japan)"),
-            emulator: Emulator::Bsnes,
-            rank_offset: 0x0084,
-            rank_values: 16,
-        },
-
-        GameData
-        {
-            id: Games::ParodiusSnes,
-            name: String::from("Parodius Da! - Shinwa kara Owarai e (japan)"),
-            emulator: Emulator::Bsnes,
-            rank_offset: 0x0088,
-            rank_values: 32,
-        },
-
-        GameData
-        {
-            id: Games::GhoulsArcade,
-            name: String::from("Daimakaimura (Japan) [daimakai] - MAME 0.242 (LLP64)"),
-            emulator: Emulator::Mame,
-            rank_offset: 0x092A,
-            rank_values: 16,
-        },
-    ]
-}
-
 fn find_game(gui_state: &mut GuiState)
 {
-    gui_state.handle_timer -= 1;
-
-    if gui_state.handle_timer < 0
+    if gui_state.handle_timer > 0
     {
-        gui_state.handle_timer = 30;
+        gui_state.handle_timer -= 1;
+        return;
+    }
+    gui_state.handle_timer = 30;
 
-        if let Some(game) = &gui_state.current_game //already found a game window
+    let mut emu_info = None;
+
+    let (pid_list, pid_size) = enum_processes();
+
+    for x in 0 .. pid_size / 4
+    {
+        unsafe
         {
-            unsafe
+            let handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, pid_list[x as usize]);
+            if handle.ok().is_ok()
             {
-                if FindWindowA(PCSTR::default(), game.name.as_str()).ok().is_err()
+                let mut first_module = HINSTANCE::default();
+                let mut lpcb_needed = 0;
+                K32EnumProcessModules(handle, &mut first_module, std::mem::size_of::<HINSTANCE>() as u32, &mut lpcb_needed);
+
+                let mut module_name = [0; 256];
+                let len = K32GetModuleBaseNameA(handle, first_module, &mut module_name);
+
+                let emu = match std::str::from_utf8(&module_name[0 .. len as usize])
                 {
-                    gui_state.current_game = None;
-                    gui_state.p_handle.0 = 0;
+                    Ok(str2) =>
+                    {
+                        match str2
+                        {
+                            "bsnes.exe" => Some(Emulator::Bsnes),
+                            "mame.exe" => Some(Emulator::Mame),
+                            _ => None,
+                        }
+                    }
+
+                    Err(e) => panic!("failed to get convert module name to string: {e}"),
+                };
+
+                if let Some(emu2) = emu
+                {
+                    emu_info = Some((emu2, handle));
+                }
+                else
+                {
+                    CloseHandle(handle);
                 }
             }
         }
-        else //search for a game window
+    }
+
+    if let Some((emu, handle)) = emu_info
+    {
+        match emu
         {
-            for game in valid_games()
+            Emulator::Bsnes =>
             {
+                let mut raw_str = [0; 22];
+
                 unsafe
                 {
-                    if let Ok(hwnd2) = FindWindowA(PCSTR::default(), game.name.as_str()).ok()
+                    let base = 0xB151E8 as *const c_void;
+                    let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
+                    let mut count = 0;
+                    ReadProcessMemory(handle, base, p_raw_str, 21, &mut count);
+                }
+
+                let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
+
+                let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
+                {
+                    Ok(name) => Games::bsnes_game_name(name),
+                    Err(e) => panic!("failed to get convert game name to string: {e}"),
+                };
+
+                match game_name
+                {
+                    Some(game) =>
+                    {
+                        gui_state.handle = handle;
+                        gui_state.offset = 0xB16D7C;
+                        gui_state.current_game = Some(game.game_info());
+                    }
+
+                    None =>
+                    {
+                        unsafe{ CloseHandle(handle); }
+                    }
+                };
+            }
+
+            Emulator::Mame =>
+            {
+                //todo: very bootleg! fix
+
+                let ghouls_data = Games::GhoulsArcade.game_info();
+
+                unsafe
+                {
+                    if let Ok(hwnd2) = FindWindowA(PCSTR::default(), ghouls_data.name.as_str()).ok()
                     {
                         let mut process_id = 0;
                         GetWindowThreadProcessId(hwnd2, &mut process_id);
-                        gui_state.p_handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, process_id);
 
-                        gui_state.offset = match game.emulator
-                        {
-                            Emulator::Mame =>get_mame_offset(&gui_state.p_handle),
-                            Emulator::Bsnes => 0xB16D7C,
-                        };
-
-                        gui_state.current_game = Some(game);
-                        break;
+                        gui_state.handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, process_id);
+                        gui_state.offset = get_mame_offset(&gui_state.handle);
+                        gui_state.current_game = Some(ghouls_data);
                     }
                 }
             }
@@ -230,7 +307,7 @@ fn find_game(gui_state: &mut GuiState)
 fn get_mame_offset(handle: &HANDLE) -> u64
 {
     //sleep because getting the offset while mame is loading the game can fail
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     unsafe
     {
@@ -257,39 +334,57 @@ fn get_mame_offset(handle: &HANDLE) -> u64
     }
 }
 
+fn enum_processes() -> ([u32; 384], u32)
+{
+    let mut pid_list = [0; 384];
+    let mut pid_size = 0;
+    unsafe{ K32EnumProcesses(pid_list.as_mut_ptr(), pid_list.len() as u32 * 4, &mut pid_size); }
+
+    (pid_list, pid_size)
+}
+
 fn update(gui_state: &mut GuiState)
 {
-    if let Some(game) = &gui_state.current_game
+    if gui_state.memory_read_timer > 0
     {
         gui_state.memory_read_timer -= 1;
-
-        if gui_state.memory_read_timer < 0
-        {
-            gui_state.memory_read_timer = 60; //30 = 1s
-
-            let mut rank = 0;
-
-            unsafe
-            {
-                let base = (gui_state.offset + game.rank_offset as u64) as *const c_void;
-                let p_rank = &mut rank as *mut _ as *mut c_void;
-                let mut count = 0;
-                ReadProcessMemory(gui_state.p_handle, base, p_rank, 1, &mut count);
-            }
-
-            gui_state.rank = game.id.format_rank(rank);
-
-            if gui_state.rank >= game.rank_values
-            {
-                println!("rank out of range: {}", gui_state.rank);
-                gui_state.rank = 0;
-            }
-
-            gui_state.graph.pop_front();
-            gui_state.graph.push_back(gui_state.rank as f32);
-            gui_state.graph.make_contiguous();
-        }
+        return;
     }
+    gui_state.memory_read_timer = 60; //30 = 1s
+
+    //check if game window is closed. not perfect as user can load other game without closing the emulator
+    let mut exit_code = 0;
+    unsafe{ GetExitCodeProcess(gui_state.handle, &mut exit_code); }
+    if exit_code != STILL_ACTIVE.0 as u32
+    {
+        gui_state.current_game = None;
+        gui_state.handle.0 = 0;
+        return;
+    }
+
+    let game = gui_state.current_game.as_ref().unwrap();
+
+    let mut rank = 0;
+
+    unsafe
+    {
+        let base = (gui_state.offset + game.rank_offset as u64) as *const c_void;
+        let p_rank = &mut rank as *mut _ as *mut c_void;
+        let mut count = 0;
+        ReadProcessMemory(gui_state.handle, base, p_rank, 1, &mut count);
+    }
+
+    gui_state.rank = game.id.format_rank(rank);
+
+    if gui_state.rank >= game.rank_values
+    {
+        println!("rank out of range: {}", gui_state.rank);
+        gui_state.rank = 0;
+    }
+
+    gui_state.graph.pop_front();
+    gui_state.graph.push_back(gui_state.rank as f32);
+    gui_state.graph.make_contiguous();
 }
 
 fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
@@ -311,7 +406,7 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
                 plot_ui.hline(egui::plot::HLine::new(0.0).color(Color32::DARK_GRAY));
                 plot_ui.hline(egui::plot::HLine::new((data.rank_values - 1) as f32).color(Color32::DARK_GRAY));
 
-                let red = ((gui_state.rank as f32 / (data.rank_values - 1) as f32) * 255.0) as u8;
+                let red = ((gui_state.rank as f32 / (data.rank_values - 1) as f32) * 255.0).round() as u8;
                 let green = 255 - red;
 
                 plot_ui.line
