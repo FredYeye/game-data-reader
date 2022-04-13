@@ -52,6 +52,7 @@ enum Games
     Gradius3Snes,
     ParodiusSnes,
     GhoulsArcade,
+    Gradius3Arcade,
 }
 
 impl Games
@@ -60,8 +61,8 @@ impl Games
     {
         match self
         {
-            Games::Gradius3Snes | Games::ParodiusSnes => rank,
             Games::GhoulsArcade => rank >> 3,
+            _ => rank,
         }
     }
 
@@ -103,6 +104,15 @@ impl Games
                 name: String::from("Daimakaimura (Japan) [daimakai] - MAME 0.242 (LLP64)"),
                 // emulator: Emulator::Mame,
                 rank_offset: 0x092A,
+                rank_values: 16,
+            },
+
+            Self::Gradius3Arcade => GameData
+            {
+                id: Games::Gradius3Arcade,
+                name: String::from("Gradius III (World, program code R) [gradius3] - MAME 0.242 (LLP64)"),
+                // emulator: Emulator::Mame,
+                rank_offset: 0x39C0,
                 rank_values: 16,
             },
         }
@@ -285,18 +295,25 @@ fn find_game(gui_state: &mut GuiState)
             {
                 //todo: very bootleg! fix
 
-                let ghouls_data = Games::GhoulsArcade.game_info();
+                let ghouls_data =
+                [
+                    (Games::GhoulsArcade.game_info(), vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18]),
+                    (Games::Gradius3Arcade.game_info(), vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10]),
+                ];
 
-                unsafe
+                for games in ghouls_data
                 {
-                    if let Ok(hwnd2) = FindWindowA(PCSTR::default(), ghouls_data.name.as_str()).ok()
+                    unsafe
                     {
-                        let mut process_id = 0;
-                        GetWindowThreadProcessId(hwnd2, &mut process_id);
-
-                        gui_state.handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, process_id);
-                        gui_state.offset = get_mame_offset(&gui_state.handle);
-                        gui_state.current_game = Some(ghouls_data);
+                        if let Ok(hwnd2) = FindWindowA(PCSTR::default(), games.0.name.as_str()).ok()
+                        {
+                            let mut process_id = 0;
+                            GetWindowThreadProcessId(hwnd2, &mut process_id);
+    
+                            gui_state.handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, process_id);
+                            gui_state.offset = get_mame_offset(&gui_state.handle, games.1);
+                            gui_state.current_game = Some(games.0);
+                        }
                     }
                 }
             }
@@ -304,7 +321,7 @@ fn find_game(gui_state: &mut GuiState)
     }
 }
 
-fn get_mame_offset(handle: &HANDLE) -> u64
+fn get_mame_offset(handle: &HANDLE, offset_list: Vec<u64>) -> u64
 {
     //sleep because getting the offset while mame is loading the game can fail
     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -320,9 +337,7 @@ fn get_mame_offset(handle: &HANDLE) -> u64
 
         let mut address = info.lpBaseOfDll as u64;
 
-        let offsets = [0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18];
-
-        for offset in offsets
+        for offset in offset_list
         {
             let base = (address + offset) as *const c_void;
             let p_address = &mut address as *mut _ as *mut c_void;
