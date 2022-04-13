@@ -12,38 +12,45 @@ use windows::{
 };
 
 use std::ffi::c_void;
-use egui::{Context, plot::{Plot, Line, Values, LineStyle}, Color32, RawInput};
-use glutin::{ContextWrapper, PossiblyCurrent};
+use egui::{Context, plot::{Plot, Line, Values, LineStyle}, Color32};
 use glutin::event_loop::{ControlFlow, EventLoop};
 
 mod egui_glutin;
 
-pub struct EguiState
-{
-    windowed_context: ContextWrapper<PossiblyCurrent, glutin::window::Window>,
-
-    ctx: Context,
-    pos_in_points: Option<egui::Pos2>,
-    raw_input: RawInput,
-
-    vao: u32,
-    vbo: u32,
-    tex: u32,
-    shader: u32,
-
-    buffer_size: u32,
-}
-
 struct GuiState
 {
+    current_game: Option<GameData>,
     handle: HANDLE,
     offset: u64,
+
     handle_timer: i8,
     memory_read_timer: i8,
 
-    graph: std::collections::VecDeque<f32>,
+    graph: Graph,
+    // graph: std::collections::VecDeque<f32>,
     rank: u8,
-    current_game: Option<GameData>,
+}
+
+struct Graph
+{
+    value_count: u16,
+    values: std::collections::VecDeque<f32>,
+}
+
+#[derive(PartialEq)]
+enum Emulator
+{
+    Bsnes,
+    Mame,
+}
+
+struct GameData
+{
+    id: Games,
+    name: String,
+    // emulator: Emulator,
+    rank_offset: u16,
+    rank_values: u8,
 }
 
 #[derive(PartialEq)]
@@ -70,7 +77,7 @@ impl Games
     {
         match name
         {
-            "gradius 3" => Some(Games::Gradius3Snes),
+            "gradius 3" | "GRADIUS 3" => Some(Games::Gradius3Snes),
             "PARODIUS" => Some(Games::ParodiusSnes),
             _ => None,
         }
@@ -119,22 +126,6 @@ impl Games
     }
 }
 
-#[derive(PartialEq)]
-enum Emulator
-{
-    Bsnes,
-    Mame,
-}
-
-struct GameData
-{
-    id: Games,
-    name: String,
-    // emulator: Emulator,
-    rank_offset: u16,
-    rank_values: u8,
-}
-
 fn main()
 {
     let el = EventLoop::new();
@@ -145,14 +136,20 @@ fn main()
 
     let mut gui_state = GuiState
     {
+        current_game: None,
         handle: HANDLE::default(),
         offset: 0,
+
         handle_timer: 0,
         memory_read_timer: 0,
 
-        graph: std::collections::VecDeque::from([0.0; 240]),
+        graph: Graph
+        {
+            value_count: 240,
+            values: std::collections::VecDeque::from([0.0; 240]),
+        },
+
         rank: 0,
-        current_game: None,
     };
 
     el.run(move |event, _, control_flow|
@@ -177,14 +174,12 @@ fn main()
                 None => find_game(&mut gui_state),
             }
 
-            // find_game(&mut gui_state);
-            // update(&mut gui_state);
             create_ui(&mut egui_state.ctx, &mut gui_state); // add panels, windows and widgets to `egui_ctx` here
+
             let full_output = egui_state.ctx.end_frame();
             let clipped_meshes = egui_state.ctx.tessellate(full_output.shapes); // create triangles to paint
             // my_integration.set_cursor_icon(output.cursor_icon);
             egui_glutin::update_textures(full_output.textures_delta.set, egui_state.tex);
-
             egui_glutin::paint_egui(clipped_meshes, &mut egui_state);
 
             for &id in &full_output.textures_delta.free
@@ -397,9 +392,9 @@ fn update(gui_state: &mut GuiState)
         gui_state.rank = 0;
     }
 
-    gui_state.graph.pop_front();
-    gui_state.graph.push_back(gui_state.rank as f32);
-    gui_state.graph.make_contiguous();
+    gui_state.graph.values.pop_front();
+    gui_state.graph.values.push_back(gui_state.rank as f32);
+    gui_state.graph.values.make_contiguous();
 }
 
 fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
@@ -426,7 +421,7 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
 
                 plot_ui.line
                 (
-                    Line::new(Values::from_ys_f32(gui_state.graph.as_slices().0))
+                    Line::new(Values::from_ys_f32(gui_state.graph.values.as_slices().0))
                     .color(Color32::from_rgb(red, green, 0))
                     .style(LineStyle::Solid)
                 )
@@ -434,8 +429,27 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
 
             if ui.button("Clear").clicked()
             {
-                gui_state.graph = std::collections::VecDeque::from([0.0; 240]);
+                gui_state.graph.values = std::collections::VecDeque::new();
+                gui_state.graph.values.resize(gui_state.graph.value_count as usize, 0.0);
             }
+
+            ui.collapsing("Advanced", |ui|
+            {
+                let count = gui_state.graph.value_count;
+
+                ui.add
+                (
+                    egui::DragValue::new(&mut gui_state.graph.value_count)
+                    .speed(1.0)
+                    .clamp_range(30 ..= 480)
+                    .prefix("data points: ")
+                );
+
+                if count != gui_state.graph.value_count
+                {
+                    gui_state.graph.values.resize(gui_state.graph.value_count as usize, 0.0);
+                }
+            });
         });
     }
 }

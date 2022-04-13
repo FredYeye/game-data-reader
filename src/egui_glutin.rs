@@ -4,7 +4,23 @@ use glutin::event_loop::ControlFlow;
 use glutin::event::*;
 use std::{ffi::{CString, c_void}, ptr, str::from_utf8};
 
-pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut crate::EguiState)
+pub struct EguiState
+{
+    pub windowed_context: ContextWrapper<PossiblyCurrent, glutin::window::Window>,
+
+    pub ctx: egui::Context,
+    pub pos_in_points: Option<egui::Pos2>,
+    pub raw_input: RawInput,
+
+    vao: u32,
+    vbo: u32,
+    pub tex: u32,
+    shader: u32,
+
+    buffer_size: u32,
+}
+
+pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiState)
 {
     //todo: pass in window size
     unsafe
@@ -351,7 +367,7 @@ fn is_printable_char(chr: char) -> bool
     !is_in_private_use_area && !chr.is_ascii_control()
 }
 
-pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> crate::EguiState
+pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> EguiState
 {
     let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(1024, 768)).with_title("test");
 
@@ -372,7 +388,7 @@ pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> crate::EguiS
     let vert_e = include_str!("shader_e.vert");
     let frag_e = include_str!("shader_e.frag");
 
-    crate::EguiState
+    EguiState
     {
         windowed_context: windowed_context,
 
