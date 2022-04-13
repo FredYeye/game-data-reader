@@ -1,5 +1,5 @@
 # game-data-reader
-Proof-of-concept pasta code to read various data from games.
+Pasta code to display various data from games, such as internal rank.
 
 ## Currently supported emulators:
 bsnes v115  
