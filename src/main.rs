@@ -261,86 +261,56 @@ fn find_game(gui_state: &mut GuiState)
 
     if let Some((emu, handle)) = emu_info
     {
-        match emu
+        let mut raw_str = [0; 22];
+        let base = match emu
         {
-            Emulator::Bsnes =>
-            {
-                let mut raw_str = [0; 22];
-
-                unsafe
-                {
-                    let base = 0xB151E8 as *const c_void;
-                    let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
-                    let mut count = 0;
-                    ReadProcessMemory(handle, base, p_raw_str, 21, &mut count);
-                }
-
-                let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
-
-                let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
-                {
-                    Ok(name) => Games::bsnes_game_name(name),
-                    Err(e) => panic!("failed to get convert game name to string: {e}"),
-                };
-
-                match game_name
-                {
-                    Some(game) =>
-                    {
-                        gui_state.handle = handle;
-                        gui_state.offset = 0xB16D7C;
-                        gui_state.current_game = Some(game.game_info());
-                    }
-
-                    None =>
-                    {
-                        unsafe{ CloseHandle(handle); }
-                    }
-                };
-            }
-
+            Emulator::Bsnes => 0xB151E8 as *const c_void,
             Emulator::Mame =>
             {
                 let name_offset = vec![0x11B72B48];
                 let offset = get_mame_offset(&handle, name_offset);
+                (offset + 0xD8) as *const c_void
+            }
+        };
 
-                let mut raw_str = [0; 10];
+        unsafe
+        {
+            let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
+            let mut count = 0;
+            ReadProcessMemory(handle, base, p_raw_str, raw_str.len() - 1, &mut count);
+        }
 
-                unsafe
+        let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
+
+        let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
+        {
+            Ok(name) => match emu
+            {
+                Emulator::Bsnes => Games::bsnes_game_name(name),
+                Emulator::Mame => Games::mame_game_name(name),
+            }
+
+            Err(e) => panic!("failed to get convert game name to string: {e}"),
+        };
+
+        match game_name
+        {
+            Some(game) =>
+            {
+                gui_state.handle = handle;
+                gui_state.current_game = Some(game.game_info());
+                gui_state.offset = match emu
                 {
-                    let base = (offset + 0xD8) as *const c_void;
-                    let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
-                    let mut count = 0;
-                    ReadProcessMemory(handle, base, p_raw_str, 8, &mut count);
-                }
-
-
-
-
-                let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
-
-                let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
-                {
-                    Ok(name) => Games::mame_game_name(name),
-                    Err(e) => panic!("failed to get convert game name to string: {e}"),
-                };
-
-                match game_name
-                {
-                    Some(game) =>
-                    {
-                        gui_state.handle = handle;
-                        gui_state.offset = get_mame_offset(&gui_state.handle, game.mame_game_offset());
-                        gui_state.current_game = Some(game.game_info());
-                    }
-
-                    None =>
-                    {
-                        unsafe{ CloseHandle(handle); }
-                    }
+                    Emulator::Bsnes => 0xB16D7C,
+                    Emulator::Mame => get_mame_offset(&handle, game.mame_game_offset()),
                 };
             }
-        }
+
+            None =>
+            {
+                unsafe{ CloseHandle(handle); }
+            }
+        };
     }
 }
 
@@ -442,8 +412,6 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
             {
                 plot_ui.hline(egui::plot::HLine::new(0.0).color(Color32::DARK_GRAY));
                 plot_ui.hline(egui::plot::HLine::new((data.rank_values - 1) as f32).color(Color32::DARK_GRAY));
-
-
 
                 let mut rgb = [0; 3];
 
