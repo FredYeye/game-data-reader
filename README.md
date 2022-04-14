@@ -15,3 +15,4 @@ Ghouls 'n Ghosts (arcade)
 ### todo / goals
 - remember positions and sizes of egui windows  
 - allow window resizing  
+- add some cool example screenshot  

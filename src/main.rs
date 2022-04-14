@@ -508,4 +508,12 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
             });
         });
     }
+    else
+    {
+        egui::Window::new("Game data reader").show(ctx, |ui|
+        {
+            ui.label("Searching for supported games...");
+            ui.label("Once a game has been found, data will be shown automatically!");
+        });
+    }
 }
