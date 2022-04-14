@@ -1,6 +1,7 @@
 # game-data-reader
-Displays various data from games, such as internal rank. To use, simply run the program and it will look for bsnes or mame running one of the supported games.  
-Capturing data from bsnes is currently in good shape; mame less so.  
+Displays various data from games, such as internal rank.  
+To use, simply run the program and it will look for bsnes or mame running one of the supported games.  
+Capturing data from bsnes works well, mame is getting there.  
 
 ## Currently supported emulators:
 bsnes v115  
@@ -12,5 +13,5 @@ Parodius Da (snes)
 Ghouls 'n Ghosts (arcade)  
 
 ### todo / goals
-- advanced tab for rank plot to tweak looks  
 - remember positions and sizes of egui windows  
+- allow window resizing  

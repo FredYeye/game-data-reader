@@ -1,14 +1,12 @@
 use windows::{
     Win32::{
         Foundation::{HANDLE, HINSTANCE, CloseHandle, STILL_ACTIVE},
-        UI::WindowsAndMessaging::{FindWindowA, GetWindowThreadProcessId},
         System::Diagnostics::Debug::ReadProcessMemory,
         System::{
             Threading::{OpenProcess, PROCESS_VM_READ, PROCESS_QUERY_INFORMATION, GetExitCodeProcess},
             ProcessStatus::{K32EnumProcessModules, K32GetModuleInformation, MODULEINFO, K32EnumProcesses, K32GetModuleBaseNameA},
         },
     },
-    core::PCSTR,
 };
 
 use std::ffi::c_void;
@@ -27,7 +25,6 @@ struct GuiState
     memory_read_timer: i8,
 
     graph: Graph,
-    // graph: std::collections::VecDeque<f32>,
     rank: u8,
 }
 
@@ -35,6 +32,9 @@ struct Graph
 {
     value_count: u16,
     values: std::collections::VecDeque<f32>,
+    aspect: f32,
+    color_start: [u8; 3],
+    color_end: [u8; 3],
 }
 
 #[derive(PartialEq)]
@@ -47,8 +47,6 @@ enum Emulator
 struct GameData
 {
     id: Games,
-    name: String,
-    // emulator: Emulator,
     rank_offset: u16,
     rank_values: u8,
 }
@@ -83,6 +81,26 @@ impl Games
         }
     }
 
+    fn mame_game_name(name: &str) -> Option<Self>
+    {
+        match name
+        {
+            "gradius3" | "gradius3a" | "gradius3j" | "gradius3js" => Some(Games::Gradius3Arcade),
+            "ghouls" | "ghoulsu" | "daimakai" | "daimakair" => Some(Games::GhoulsArcade),
+            _ => None,
+        }
+    }
+
+    fn mame_game_offset(&self) -> Vec<u64>
+    {
+        match self
+        {
+            Games::GhoulsArcade => vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18],
+            Games::Gradius3Arcade => vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10],
+            _ => unreachable!(),
+        }
+    }
+
     fn game_info(&self) -> GameData
     {
         match self
@@ -90,8 +108,6 @@ impl Games
             Self::Gradius3Snes => GameData
             {
                 id: Games::Gradius3Snes,
-                name: String::from("Gradius III"), //unused
-                // emulator: Emulator::Bsnes,
                 rank_offset: 0x0084,
                 rank_values: 16,
             },
@@ -99,8 +115,6 @@ impl Games
             Self::ParodiusSnes => GameData
             {
                 id: Games::ParodiusSnes,
-                name: String::from("Parodius Da! - Shinwa kara Owarai e (japan)"), //unused
-                // emulator: Emulator::Bsnes,
                 rank_offset: 0x0088,
                 rank_values: 32,
             },
@@ -108,8 +122,6 @@ impl Games
             Self::GhoulsArcade => GameData
             {
                 id: Games::GhoulsArcade,
-                name: String::from("Daimakaimura (Japan) [daimakai] - MAME 0.242 (LLP64)"),
-                // emulator: Emulator::Mame,
                 rank_offset: 0x092A,
                 rank_values: 16,
             },
@@ -117,8 +129,6 @@ impl Games
             Self::Gradius3Arcade => GameData
             {
                 id: Games::Gradius3Arcade,
-                name: String::from("Gradius III (World, program code R) [gradius3] - MAME 0.242 (LLP64)"),
-                // emulator: Emulator::Mame,
                 rank_offset: 0x39C0,
                 rank_values: 16,
             },
@@ -147,6 +157,9 @@ fn main()
         {
             value_count: 240,
             values: std::collections::VecDeque::from([0.0; 240]),
+            aspect: 3.7,
+            color_start: [0, 255, 0],
+            color_end: [255, 0, 0],
         },
 
         rank: 0,
@@ -288,29 +301,44 @@ fn find_game(gui_state: &mut GuiState)
 
             Emulator::Mame =>
             {
-                //todo: very bootleg! fix
+                let name_offset = vec![0x11B72B48];
+                let offset = get_mame_offset(&handle, name_offset);
 
-                let ghouls_data =
-                [
-                    (Games::GhoulsArcade.game_info(), vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18]),
-                    (Games::Gradius3Arcade.game_info(), vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10]),
-                ];
+                let mut raw_str = [0; 10];
 
-                for games in ghouls_data
+                unsafe
                 {
-                    unsafe
-                    {
-                        if let Ok(hwnd2) = FindWindowA(PCSTR::default(), games.0.name.as_str()).ok()
-                        {
-                            let mut process_id = 0;
-                            GetWindowThreadProcessId(hwnd2, &mut process_id);
-    
-                            gui_state.handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, process_id);
-                            gui_state.offset = get_mame_offset(&gui_state.handle, games.1);
-                            gui_state.current_game = Some(games.0);
-                        }
-                    }
+                    let base = (offset + 0xD8) as *const c_void;
+                    let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
+                    let mut count = 0;
+                    ReadProcessMemory(handle, base, p_raw_str, 8, &mut count);
                 }
+
+
+
+
+                let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
+
+                let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
+                {
+                    Ok(name) => Games::mame_game_name(name),
+                    Err(e) => panic!("failed to get convert game name to string: {e}"),
+                };
+
+                match game_name
+                {
+                    Some(game) =>
+                    {
+                        gui_state.handle = handle;
+                        gui_state.offset = get_mame_offset(&gui_state.handle, game.mame_game_offset());
+                        gui_state.current_game = Some(game.game_info());
+                    }
+
+                    None =>
+                    {
+                        unsafe{ CloseHandle(handle); }
+                    }
+                };
             }
         }
     }
@@ -388,7 +416,8 @@ fn update(gui_state: &mut GuiState)
 
     if gui_state.rank >= game.rank_values
     {
-        println!("rank out of range: {}", gui_state.rank);
+        //todo: maybe log to some misc log window instead
+        // println!("rank out of range: {}", gui_state.rank);
         gui_state.rank = 0;
     }
 
@@ -403,10 +432,8 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
     {
         egui::Window::new("Rank").show(ctx, |ui|
         {
-            ui.set_min_height(150.0);
-
             let plot = Plot::new("rank")
-            .view_aspect(3.7)
+            .view_aspect(gui_state.graph.aspect)
             .allow_boxed_zoom(false)
             .allow_drag(false)
             .show_axes([false, false]);
@@ -416,13 +443,27 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
                 plot_ui.hline(egui::plot::HLine::new(0.0).color(Color32::DARK_GRAY));
                 plot_ui.hline(egui::plot::HLine::new((data.rank_values - 1) as f32).color(Color32::DARK_GRAY));
 
-                let red = ((gui_state.rank as f32 / (data.rank_values - 1) as f32) * 255.0).round() as u8;
-                let green = 255 - red;
+
+
+                let mut rgb = [0; 3];
+
+                for x in 0 .. 3
+                {
+                    let diff = gui_state.graph.color_end[x] as i16 - gui_state.graph.color_start[x] as i16;
+                    
+                    let step = match diff == 0
+                    {
+                        false => diff as f32 / (data.rank_values - 1) as f32,
+                        true => 0.0,
+                    };
+
+                    rgb[x] = (gui_state.graph.color_start[x] as f32 + gui_state.rank as f32 * step).round() as u8;
+                }
 
                 plot_ui.line
                 (
                     Line::new(Values::from_ys_f32(gui_state.graph.values.as_slices().0))
-                    .color(Color32::from_rgb(red, green, 0))
+                    .color(Color32::from_rgb(rgb[0], rgb[1], rgb[2]))
                     .style(LineStyle::Solid)
                 )
             });
@@ -449,6 +490,21 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
                 {
                     gui_state.graph.values.resize(gui_state.graph.value_count as usize, 0.0);
                 }
+
+                ui.add
+                (
+                    egui::DragValue::new(&mut gui_state.graph.aspect)
+                    .speed(0.1)
+                    .clamp_range(2.0 ..= 8.0)
+                    .prefix("width/height ratio: ")
+                );
+
+                ui.horizontal(|ui|
+                {
+                    ui.label("Low/high rank colors: ");
+                    ui.color_edit_button_srgb(&mut gui_state.graph.color_start);
+                    ui.color_edit_button_srgb(&mut gui_state.graph.color_end);
+                });
             });
         });
     }
