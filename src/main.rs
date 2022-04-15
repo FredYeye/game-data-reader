@@ -169,7 +169,7 @@ fn main()
     {
         *control_flow = ControlFlow::Poll;
 
-        egui_glutin::event_handling(event, control_flow, &egui_state.windowed_context, &mut egui_state.raw_input, &mut egui_state.pos_in_points);
+        egui_glutin::event_handling(event, control_flow, &mut egui_state);
 
         let current_time = std::time::Instant::now();
         frame_time += current_time - last_time;
@@ -216,9 +216,9 @@ fn find_game(gui_state: &mut GuiState)
 
     let mut emu_info = None;
 
-    let (pid_list, pid_size) = enum_processes();
+    let (pid_list, pid_count) = enum_processes();
 
-    for x in 0 .. pid_size / 4
+    for x in 0 .. pid_count
     {
         unsafe
         {
@@ -348,7 +348,7 @@ fn enum_processes() -> ([u32; 384], u32)
     let mut pid_size = 0;
     unsafe{ K32EnumProcesses(pid_list.as_mut_ptr(), pid_list.len() as u32 * 4, &mut pid_size); }
 
-    (pid_list, pid_size)
+    (pid_list, pid_size / 4)
 }
 
 fn update(gui_state: &mut GuiState)

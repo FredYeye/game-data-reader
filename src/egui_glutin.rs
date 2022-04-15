@@ -18,6 +18,8 @@ pub struct EguiState
     shader: u32,
 
     buffer_size: u32,
+
+    window_size: (u32, u32),
 }
 
 pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiState)
@@ -25,7 +27,7 @@ pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiS
     //todo: pass in window size
     unsafe
     {
-        gl::Scissor(0, 0, 1024, 768);
+        gl::Scissor(0, 0, egui_state.window_size.0 as i32, egui_state.window_size.1 as i32);
         gl::ClearColor(0.0, 0.1, 0.2, 1.0);
         gl::Clear(gl::COLOR_BUFFER_BIT | gl::STENCIL_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
@@ -41,11 +43,11 @@ pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiS
     {
         unsafe
         {
-            let x = clipped_mesh.0.min.x.clamp(0.0, 1024.0);
-            let y = clipped_mesh.0.min.y.clamp(0.0, 768.0);
-            let width = clipped_mesh.0.max.x.clamp(x, 1024.0) as i32;
-            let height = clipped_mesh.0.max.y.clamp(y, 768.0) as i32;
-            gl::Scissor(x as i32, 768 - height, width - x as i32, height - y as i32);
+            let x = clipped_mesh.0.min.x.clamp(0.0, egui_state.window_size.0 as f32);
+            let y = clipped_mesh.0.min.y.clamp(0.0, egui_state.window_size.1 as f32);
+            let width = clipped_mesh.0.max.x.clamp(x, egui_state.window_size.0 as f32) as i32;
+            let height = clipped_mesh.0.max.y.clamp(y, egui_state.window_size.1 as f32) as i32;
+            gl::Scissor(x as i32, egui_state.window_size.1 as i32 - height, width - x as i32, height - y as i32);
 
             let buffer_size = ((clipped_mesh.1.indices.len() + (clipped_mesh.1.vertices.len() * 5)) * 4) as u32;
 
@@ -369,7 +371,7 @@ fn is_printable_char(chr: char) -> bool
 
 pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> EguiState
 {
-    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(1024, 768)).with_title("test");
+    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(1024, 768)).with_title("Game data reader");
 
     let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
     let windowed_context = unsafe{windowed_context.make_current().unwrap()};
@@ -402,17 +404,12 @@ pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> EguiState
         shader: create_program(vert_e, frag_e),
 
         buffer_size: 0,
+
+        window_size: (1024, 768),
     }
 }
 
-pub fn event_handling
-(
-    event: Event<()>,
-    control_flow: &mut ControlFlow,
-    windowed_context: &ContextWrapper<PossiblyCurrent, glutin::window::Window>,
-    raw_input: &mut RawInput,
-    pos_in_points: &mut Option<egui::Pos2>
-)
+pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_state: &mut EguiState)
 {
     match event
     {
@@ -427,9 +424,9 @@ pub fn event_handling
             {
                 WindowEvent::ReceivedCharacter(ch) =>
                 {
-                    if is_printable_char(ch) && !raw_input.modifiers.ctrl
+                    if is_printable_char(ch) && !egui_state.raw_input.modifiers.ctrl
                     {
-                        raw_input.events.push(egui::Event::Text(ch.to_string()));
+                        egui_state.raw_input.events.push(egui::Event::Text(ch.to_string()));
                     }
                 }
 
@@ -441,17 +438,17 @@ pub fn event_handling
 
                         if matches!(keycode, VirtualKeyCode::LAlt | VirtualKeyCode::RAlt)
                         {
-                            raw_input.modifiers.alt = pressed;
+                            egui_state.raw_input.modifiers.alt = pressed;
                         }
 
                         if matches!(keycode, VirtualKeyCode::LControl | VirtualKeyCode::RControl)
                         {
-                            raw_input.modifiers.ctrl = pressed;
+                            egui_state.raw_input.modifiers.ctrl = pressed;
                         }
 
                         if matches!(keycode, VirtualKeyCode::LShift | VirtualKeyCode::RShift)
                         {
-                            raw_input.modifiers.shift = pressed;
+                            egui_state.raw_input.modifiers.shift = pressed;
                         }
 
                         if let Some(key) = translate_virtual_key_code(keycode)
@@ -461,13 +458,13 @@ pub fn event_handling
                                 *control_flow = ControlFlow::Exit
                             }
 
-                            raw_input.events.push
+                            egui_state.raw_input.events.push
                             (
                                 egui::Event::Key
                                 {
                                     key,
                                     pressed,
-                                    modifiers: raw_input.modifiers,
+                                    modifiers: egui_state.raw_input.modifiers,
                                 }
                             );
                         }
@@ -481,9 +478,9 @@ pub fn event_handling
                         position.x as f32 / 1.0,
                         position.y as f32 / 1.0,
                     );
-                    *pos_in_points = Some(pos_in_points_temp);
+                    egui_state.pos_in_points = Some(pos_in_points_temp);
 
-                    raw_input.events.push(egui::Event::PointerMoved(pos_in_points_temp));
+                    egui_state.raw_input.events.push(egui::Event::PointerMoved(pos_in_points_temp));
                 }
 
                 WindowEvent::MouseInput
@@ -493,7 +490,7 @@ pub fn event_handling
                     ..
                 } =>
                 {
-                    if let Some(pos_in_points_temp) = pos_in_points
+                    if let Some(pos_in_points_temp) = egui_state.pos_in_points
                     {
                         if let Some(button) =
                             match button
@@ -504,11 +501,11 @@ pub fn event_handling
                                 _ => None,
                             }
                         {
-                            raw_input.events.push
+                            egui_state.raw_input.events.push
                             (
                                 egui::Event::PointerButton
                                 {
-                                    pos: *pos_in_points_temp,
+                                    pos: pos_in_points_temp,
                                     button,
                                     pressed: match state
                                     {
@@ -524,7 +521,14 @@ pub fn event_handling
 
                 WindowEvent::Resized(physical_size) =>
                 {
-                    windowed_context.resize(physical_size)
+                    egui_state.windowed_context.resize(physical_size);
+                    egui_state.window_size = (physical_size.width, physical_size.height);
+
+                    unsafe
+                    {
+                        gl::Viewport(0, 0, physical_size.width as i32, physical_size.height as i32);
+                        gl::ProgramUniform2f(egui_state.shader, 3, physical_size.width as f32, physical_size.height as f32);
+                    };
                 }
 
                 WindowEvent::CloseRequested =>
