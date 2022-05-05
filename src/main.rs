@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use windows::{
     Win32::{
         Foundation::{HANDLE, HINSTANCE, CloseHandle, STILL_ACTIVE},
@@ -335,7 +337,7 @@ fn update(gui_state: &mut GuiState)
     if gui_state.rank >= game.rank_values
     {
         //todo: maybe log to some misc log window instead
-        // println!("rank out of range: {}", gui_state.rank);
+        println!("rank out of range: {}", gui_state.rank);
         gui_state.rank = 0;
     }
 
