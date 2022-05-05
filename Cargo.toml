@@ -7,11 +7,12 @@ edition = "2021"
 
 [dependencies]
 glutin = "0.28.0"
-egui = "0.17.0"
+egui = "0.18.1"
 gl = "0.14.0"
+miniserde = "0.1.24"
 
 [dependencies.windows]
-version = "0.34.0"
+version = "0.36.1"
 features = [
     "alloc",
     "Data_Xml_Dom",

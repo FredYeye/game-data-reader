@@ -4,6 +4,8 @@ use glutin::event_loop::ControlFlow;
 use glutin::event::*;
 use std::{ffi::{CString, c_void}, ptr, str::from_utf8};
 
+use crate::GuiState;
+
 pub struct EguiState
 {
     pub windowed_context: ContextWrapper<PossiblyCurrent, glutin::window::Window>,
@@ -22,7 +24,7 @@ pub struct EguiState
     window_size: (u32, u32),
 }
 
-pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiState)
+pub fn paint_egui(clipped_primitives: Vec<egui::ClippedPrimitive>, egui_state: &mut EguiState)
 {
     //todo: pass in window size
     unsafe
@@ -39,17 +41,23 @@ pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiS
         gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
     }
 
-    for clipped_mesh in &clipped_meshes
+    for clipped_primitive in &clipped_primitives
     {
         unsafe
         {
-            let x = clipped_mesh.0.min.x.clamp(0.0, egui_state.window_size.0 as f32);
-            let y = clipped_mesh.0.min.y.clamp(0.0, egui_state.window_size.1 as f32);
-            let width = clipped_mesh.0.max.x.clamp(x, egui_state.window_size.0 as f32) as i32;
-            let height = clipped_mesh.0.max.y.clamp(y, egui_state.window_size.1 as f32) as i32;
+            let x = clipped_primitive.clip_rect.min.x.clamp(0.0, egui_state.window_size.0 as f32);
+            let y = clipped_primitive.clip_rect.min.y.clamp(0.0, egui_state.window_size.1 as f32);
+            let width = clipped_primitive.clip_rect.max.x.clamp(x, egui_state.window_size.0 as f32) as i32;
+            let height = clipped_primitive.clip_rect.max.y.clamp(y, egui_state.window_size.1 as f32) as i32;
             gl::Scissor(x as i32, egui_state.window_size.1 as i32 - height, width - x as i32, height - y as i32);
 
-            let buffer_size = ((clipped_mesh.1.indices.len() + (clipped_mesh.1.vertices.len() * 5)) * 4) as u32;
+            let mesh = match &clipped_primitive.primitive
+            {
+                egui::epaint::Primitive::Mesh(mesh2) => mesh2,
+                egui::epaint::Primitive::Callback(_) => todo!(),
+            };
+
+            let buffer_size = ((mesh.indices.len() + (mesh.vertices.len() * 5)) * 4) as u32;
 
             if egui_state.buffer_size < buffer_size
             {
@@ -68,16 +76,16 @@ pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiS
             (
                 egui_state.vbo,
                 0,
-                clipped_mesh.1.indices.len() as isize * 4,
-                clipped_mesh.1.indices.as_ptr() as *const c_void,
+                mesh.indices.len() as isize * 4,
+                mesh.indices.as_ptr() as *const c_void,
             );
 
             gl::NamedBufferSubData
             (
                 egui_state.vbo,
-                clipped_mesh.1.indices.len() as isize * 4,
-                clipped_mesh.1.vertices.len() as isize * 5 * 4,
-                clipped_mesh.1.vertices.as_ptr() as *const c_void,
+                mesh.indices.len() as isize * 4,
+                mesh.vertices.len() as isize * 5 * 4,
+                mesh.vertices.as_ptr() as *const c_void,
             );
 
             gl::VertexArrayVertexBuffer
@@ -85,11 +93,11 @@ pub fn paint_egui(clipped_meshes: Vec<egui::ClippedMesh>, egui_state: &mut EguiS
                 egui_state.vao,
                 0,
                 egui_state.vbo,
-                clipped_mesh.1.indices.len() as isize * 4,
+                mesh.indices.len() as isize * 4,
                 5 * 4,
             );
 
-            gl::DrawElements(gl::TRIANGLES, clipped_mesh.1.indices.len() as i32, gl::UNSIGNED_INT, ptr::null::<c_void>());
+            gl::DrawElements(gl::TRIANGLES, mesh.indices.len() as i32, gl::UNSIGNED_INT, ptr::null::<c_void>());
         }
     }
 }
@@ -269,7 +277,7 @@ pub fn update_textures(tex_set: egui::epaint::ahash::AHashMap<egui::TextureId, e
                 image.pixels.iter().map(|color| color.to_tuple()).collect()
             }
 
-            egui::ImageData::Alpha(image) =>
+            egui::ImageData::Font(image) =>
             {
                 let gamma = 1.0;
                 image.srgba_pixels(gamma).map(|color| color.to_tuple()).collect()
@@ -369,9 +377,9 @@ fn is_printable_char(chr: char) -> bool
     !is_in_private_use_area && !chr.is_ascii_control()
 }
 
-pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> EguiState
+pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState
 {
-    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(1024, 768)).with_title("Game data reader");
+    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1)).with_title("Game data reader");
 
     let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
     let windowed_context = unsafe{windowed_context.make_current().unwrap()};
@@ -405,17 +413,36 @@ pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>) -> EguiState
 
         buffer_size: 0,
 
-        window_size: (1024, 768),
+        window_size: window_size,
     }
 }
 
-pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_state: &mut EguiState)
+fn write_cfg(egui_state: &EguiState, gui_state: &GuiState)
+{
+    let save = crate::Save
+    {
+        window_size: egui_state.window_size,
+
+        rank_window_pos: gui_state.graph.default_window_pos,
+        //why is -12 necessary? probably doing something wrong
+        rank_window_width: gui_state.graph.default_window_width - 12.0,
+        color_r: (gui_state.graph.color_start[0], gui_state.graph.color_end[0]),
+        color_g: (gui_state.graph.color_start[1], gui_state.graph.color_end[1]),
+        color_b: (gui_state.graph.color_start[2], gui_state.graph.color_end[2]),
+        data_points: gui_state.graph.values.len(),
+        aspect: gui_state.graph.aspect,
+    };
+
+    std::fs::write("app.cfg", miniserde::json::to_string(&save)).expect("unable to write cfg");
+}
+
+pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_state: &mut EguiState, gui_state: &GuiState)
 {
     match event
     {
         Event::LoopDestroyed =>
         {
-            //todo: write state file here?
+            write_cfg(egui_state, gui_state);
         }
 
         Event::WindowEvent{event, ..} =>

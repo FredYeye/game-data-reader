@@ -14,10 +14,11 @@ use egui::{Context, plot::{Plot, Line, Values, LineStyle}, Color32};
 use glutin::event_loop::{ControlFlow, EventLoop};
 
 mod egui_glutin;
+mod game_data;
 
-struct GuiState
+pub struct GuiState
 {
-    current_game: Option<GameData>,
+    current_game: Option<game_data::GameData>,
     handle: HANDLE,
     offset: u64,
 
@@ -28,118 +29,58 @@ struct GuiState
     rank: u8,
 }
 
+#[derive(miniserde::Serialize, miniserde::Deserialize, Debug)]
+struct Save
+{
+    //main window
+    window_size: (u32, u32),
+    // window_pos: (u32, u32),
+
+    //rank graph
+	rank_window_pos: (f32, f32),
+	rank_window_width: f32,
+	data_points: usize,
+	color_r: (u8, u8),
+    color_g: (u8, u8),
+    color_b: (u8, u8),
+	aspect: f32,
+}
+
 struct Graph
 {
-    value_count: u16,
+    default_window_pos: (f32, f32),
+    default_window_width: f32,
     values: std::collections::VecDeque<f32>,
     aspect: f32,
     color_start: [u8; 3],
     color_end: [u8; 3],
 }
 
-#[derive(PartialEq)]
-enum Emulator
-{
-    Bsnes,
-    Mame,
-}
-
-struct GameData
-{
-    id: Games,
-    rank_offset: u16,
-    rank_values: u8,
-}
-
-#[derive(PartialEq)]
-enum Games
-{
-    Gradius3Snes,
-    ParodiusSnes,
-    GhoulsArcade,
-    Gradius3Arcade,
-}
-
-impl Games
-{
-    fn format_rank(&self, rank: u8) -> u8
-    {
-        match self
-        {
-            Games::GhoulsArcade => rank >> 3,
-            _ => rank,
-        }
-    }
-
-    fn bsnes_game_name(name: &str) -> Option<Self>
-    {
-        match name
-        {
-            "gradius 3" | "GRADIUS 3" => Some(Games::Gradius3Snes),
-            "PARODIUS" => Some(Games::ParodiusSnes),
-            _ => None,
-        }
-    }
-
-    fn mame_game_name(name: &str) -> Option<Self>
-    {
-        match name
-        {
-            "gradius3" | "gradius3a" | "gradius3j" | "gradius3js" => Some(Games::Gradius3Arcade),
-            "ghouls" | "ghoulsu" | "daimakai" | "daimakair" => Some(Games::GhoulsArcade),
-            _ => None,
-        }
-    }
-
-    fn mame_game_offset(&self) -> Vec<u64>
-    {
-        match self
-        {
-            Games::GhoulsArcade => vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18],
-            Games::Gradius3Arcade => vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10],
-            _ => unreachable!(),
-        }
-    }
-
-    fn game_info(&self) -> GameData
-    {
-        match self
-        {
-            Self::Gradius3Snes => GameData
-            {
-                id: Games::Gradius3Snes,
-                rank_offset: 0x0084,
-                rank_values: 16,
-            },
-
-            Self::ParodiusSnes => GameData
-            {
-                id: Games::ParodiusSnes,
-                rank_offset: 0x0088,
-                rank_values: 32,
-            },
-
-            Self::GhoulsArcade => GameData
-            {
-                id: Games::GhoulsArcade,
-                rank_offset: 0x092A,
-                rank_values: 16,
-            },
-
-            Self::Gradius3Arcade => GameData
-            {
-                id: Games::Gradius3Arcade,
-                rank_offset: 0x39C0,
-                rank_values: 16,
-            },
-        }
-    }
-}
-
 fn main()
 {
+    let save = if let Ok(str_ser) = std::fs::read_to_string("app.cfg")
+    {
+        miniserde::json::from_str(&str_ser)
+        .expect("Unable to load app.cfg (was created in an older version most likely).")
+    }
+    else
+    {
+        Save
+        {
+            window_size: (1024, 768),
+
+            rank_window_pos: (20.0, 20.0),
+            rank_window_width: 450.0,
+            data_points: 240,
+            color_r: (0  , 255),
+            color_g: (255,   0),
+            color_b: (0  ,   0),
+            aspect: 3.7,
+        }
+    };
+
     let el = EventLoop::new();
-    let mut egui_state = egui_glutin::setup_egui_glutin(&el);
+    let mut egui_state = egui_glutin::setup_egui_glutin(&el, save.window_size);
 
     let mut last_time = std::time::Instant::now();
     let mut frame_time = std::time::Duration::new(0, 0);
@@ -155,11 +96,17 @@ fn main()
 
         graph: Graph
         {
-            value_count: 240,
-            values: std::collections::VecDeque::from([0.0; 240]),
-            aspect: 3.7,
-            color_start: [0, 255, 0],
-            color_end: [255, 0, 0],
+            default_window_pos: save.rank_window_pos,
+            default_window_width: save.rank_window_width,
+            values:
+            {
+                let mut val = std::collections::VecDeque::new();
+                val.resize(save.data_points, 0.0);
+                val
+            },
+            aspect: save.aspect,
+            color_start: [save.color_r.0, save.color_g.0, save.color_b.0],
+            color_end: [save.color_r.1, save.color_g.1, save.color_b.1],
         },
 
         rank: 0,
@@ -169,7 +116,7 @@ fn main()
     {
         *control_flow = ControlFlow::Poll;
 
-        egui_glutin::event_handling(event, control_flow, &mut egui_state);
+        egui_glutin::event_handling(event, control_flow, &mut egui_state, &gui_state);
 
         let current_time = std::time::Instant::now();
         frame_time += current_time - last_time;
@@ -179,13 +126,13 @@ fn main()
         {
             frame_time -= std::time::Duration::from_micros(33333);
 
-            egui_state.ctx.begin_frame(egui_state.raw_input.take());
-
             match gui_state.current_game
             {
                 Some(_) => update(&mut gui_state),
                 None => find_game(&mut gui_state),
             }
+
+            egui_state.ctx.begin_frame(egui_state.raw_input.take());
 
             create_ui(&mut egui_state.ctx, &mut gui_state); // add panels, windows and widgets to `egui_ctx` here
 
@@ -222,8 +169,8 @@ fn find_game(gui_state: &mut GuiState)
     {
         unsafe
         {
-            let handle = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, pid_list[x as usize]);
-            if handle.ok().is_ok()
+            let handle_result = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, pid_list[x as usize]);
+            if let Ok(handle) = handle_result
             {
                 let mut first_module = HINSTANCE::default();
                 let mut lpcb_needed = 0;
@@ -238,8 +185,8 @@ fn find_game(gui_state: &mut GuiState)
                     {
                         match str2
                         {
-                            "bsnes.exe" => Some(Emulator::Bsnes),
-                            "mame.exe" => Some(Emulator::Mame),
+                            "bsnes.exe" => Some(game_data::Emulator::Bsnes),
+                            "mame.exe" => Some(game_data::Emulator::Mame),
                             _ => None,
                         }
                     }
@@ -264,8 +211,8 @@ fn find_game(gui_state: &mut GuiState)
         let mut raw_str = [0; 22];
         let base = match emu
         {
-            Emulator::Bsnes => 0xB151E8 as *const c_void,
-            Emulator::Mame =>
+            game_data::Emulator::Bsnes => 0xB151E8 as *const c_void,
+            game_data::Emulator::Mame =>
             {
                 let name_offset = vec![0x11B72B48];
                 let offset = get_mame_offset(&handle, name_offset);
@@ -286,8 +233,8 @@ fn find_game(gui_state: &mut GuiState)
         {
             Ok(name) => match emu
             {
-                Emulator::Bsnes => Games::bsnes_game_name(name),
-                Emulator::Mame => Games::mame_game_name(name),
+                game_data::Emulator::Bsnes => game_data::Games::bsnes_game_name(name),
+                game_data::Emulator::Mame => game_data::Games::mame_game_name(name),
             }
 
             Err(e) => panic!("failed to get convert game name to string: {e}"),
@@ -301,8 +248,8 @@ fn find_game(gui_state: &mut GuiState)
                 gui_state.current_game = Some(game.game_info());
                 gui_state.offset = match emu
                 {
-                    Emulator::Bsnes => 0xB16D7C,
-                    Emulator::Mame => get_mame_offset(&handle, game.mame_game_offset()),
+                    game_data::Emulator::Bsnes => 0xB16D7C,
+                    game_data::Emulator::Mame => get_mame_offset(&handle, game.mame_game_offset()),
                 };
             }
 
@@ -361,6 +308,7 @@ fn update(gui_state: &mut GuiState)
     gui_state.memory_read_timer = 60; //30 = 1s
 
     //check if game window is closed. not perfect as user can load other game without closing the emulator
+    //todo: check for string again probably
     let mut exit_code = 0;
     unsafe{ GetExitCodeProcess(gui_state.handle, &mut exit_code); }
     if exit_code != STILL_ACTIVE.0 as u32
@@ -398,17 +346,28 @@ fn update(gui_state: &mut GuiState)
 
 fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
 {
+    let rect = egui::Rect
+    {
+        min: gui_state.graph.default_window_pos.into(),
+        max: (gui_state.graph.default_window_width, 0.0).into(),
+    };
+
     if let Some(data) = &gui_state.current_game
     {
-        egui::Window::new("Rank").show(ctx, |ui|
+        let response = egui::Window::new("Rank")
+        .collapsible(false)
+        .default_rect(rect)
+        .show(ctx, |ui|
         {
             let plot = Plot::new("rank")
             .view_aspect(gui_state.graph.aspect)
             .allow_boxed_zoom(false)
             .allow_drag(false)
+            // .y_grid_spacer(spacer) //figure out how this one works
             .show_axes([false, false]);
 
-            plot.show(ui, |plot_ui|
+            plot
+            .show(ui, |plot_ui|
             {
                 plot_ui.hline(egui::plot::HLine::new(0.0).color(Color32::DARK_GRAY));
                 plot_ui.hline(egui::plot::HLine::new((data.rank_values - 1) as f32).color(Color32::DARK_GRAY));
@@ -438,25 +397,26 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
 
             if ui.button("Clear").clicked()
             {
-                gui_state.graph.values = std::collections::VecDeque::new();
-                gui_state.graph.values.resize(gui_state.graph.value_count as usize, 0.0);
+                let len = gui_state.graph.values.len();
+                gui_state.graph.values.clear();
+                gui_state.graph.values.resize(len, 0.0);
             }
 
             ui.collapsing("Advanced", |ui|
             {
-                let count = gui_state.graph.value_count;
+                let mut count = gui_state.graph.values.len();
 
                 ui.add
                 (
-                    egui::DragValue::new(&mut gui_state.graph.value_count)
+                    egui::DragValue::new(&mut count)
                     .speed(1.0)
                     .clamp_range(30 ..= 480)
                     .prefix("data points: ")
                 );
 
-                if count != gui_state.graph.value_count
+                if count != gui_state.graph.values.len()
                 {
-                    gui_state.graph.values.resize(gui_state.graph.value_count as usize, 0.0);
+                    gui_state.graph.values.resize(count, 0.0);
                 }
 
                 ui.add
@@ -475,6 +435,10 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
                 });
             });
         });
+
+        let pos = &response.unwrap().response.rect;
+        gui_state.graph.default_window_pos = (pos.min.x, pos.min.y);
+        gui_state.graph.default_window_width = pos.max.x;
     }
     else
     {
