@@ -13,6 +13,6 @@ Parodius Da (snes)
 Ghouls 'n Ghosts (arcade)  
 
 ### todo / goals
-- remember positions and sizes of egui windows  
-- allow window resizing  
-- add some cool example screenshot  
+- [x] remember positions and sizes of egui windows  
+- [x] allow window resizing  
+- [ ] add some cool example screenshot  
