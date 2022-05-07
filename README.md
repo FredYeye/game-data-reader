@@ -5,7 +5,7 @@ Capturing data from bsnes works well, mame is getting there.
 
 ## Currently supported emulators:
 bsnes v115  
-mame 0.242
+mame 0.242 - 0.243
 
 ## Currently supported games:
 Gradius III (snes / arcade)  

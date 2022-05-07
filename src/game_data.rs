@@ -5,6 +5,57 @@ pub enum Emulator
     Mame,
 }
 
+impl Emulator
+{
+    pub fn get_mame_version(module_size: u32) -> u16
+    {
+        match module_size
+        {
+            0x129FB000 => 242,
+            0x12A82000 => 243,
+            _ => 0, //unsupported version
+        }
+    }
+
+    pub fn get_mame_name_offset(version: u16) -> u32
+    {
+        match version
+        {
+            242 => 0x11EC4450,
+            243 => 0x11F3C970,
+            _ => todo!("unsupported mame version"),
+        }
+    }
+
+    pub fn mame_game_offset(version: u16, games: Games) -> Vec<u64>
+    {
+        match version
+        {
+            242 =>
+            {
+                match games
+                {
+                    Games::GhoulsArcade => vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18],
+                    Games::Gradius3Arcade => vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10],
+                    _ => unreachable!(),
+                }
+            }
+
+            243 =>
+            {
+                match games
+                {
+                    Games::GhoulsArcade => vec![0x11BF4390, 0x8, 0x10, 0x38, 0x40, 0x80, 0x18, 0x80, 0x18],
+                    Games::Gradius3Arcade => vec![0x11BF4390, 0x28, 0x150, 0x8, 0x10],
+                    _ => unreachable!(),
+                }
+            }
+
+            _ => todo!("unsupported mame version"),
+        }
+    }
+}
+
 pub struct GameData
 {
     pub id: Games,
@@ -49,16 +100,6 @@ impl Games
             "gradius3" | "gradius3a" | "gradius3j" | "gradius3js" => Some(Games::Gradius3Arcade),
             "ghouls" | "ghoulsu" | "daimakai" | "daimakair" => Some(Games::GhoulsArcade),
             _ => None,
-        }
-    }
-
-    pub fn mame_game_offset(&self) -> Vec<u64>
-    {
-        match self
-        {
-            Games::GhoulsArcade => vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18],
-            Games::Gradius3Arcade => vec![0x11B72B48, 0x38, 0x150, 0x8, 0x10],
-            _ => unreachable!(),
         }
     }
 

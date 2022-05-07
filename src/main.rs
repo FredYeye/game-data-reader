@@ -210,37 +210,22 @@ fn find_game(gui_state: &mut GuiState)
 
     if let Some((emu, handle)) = emu_info
     {
-        let mut raw_str = [0; 22];
-        let base = match emu
-        {
-            game_data::Emulator::Bsnes => 0xB151E8 as *const c_void,
-            game_data::Emulator::Mame =>
-            {
-                let name_offset = vec![0x11B72B48];
-                let offset = get_mame_offset(&handle, name_offset);
-                (offset + 0xD8) as *const c_void
-            }
-        };
+        let mut first_module = HINSTANCE::default();
+        let mut lpcb_needed = 0;
+        unsafe{ K32EnumProcessModules(handle, &mut first_module, std::mem::size_of::<HINSTANCE>() as u32, &mut lpcb_needed); }
 
-        unsafe
+        let mut info = MODULEINFO::default();
+        unsafe{ K32GetModuleInformation(handle, first_module, &mut info, std::mem::size_of::<MODULEINFO>() as u32); }
+
+        if emu == game_data::Emulator::Mame
         {
-            let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
-            let mut count = 0;
-            ReadProcessMemory(handle, base, p_raw_str, raw_str.len() - 1, &mut count);
+            if game_data::Emulator::get_mame_version(info.SizeOfImage) == 0
+            {
+                return; //unsupported mame version. kinda bootleg way to do this
+            }
         }
 
-        let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
-
-        let game_name = match std::str::from_utf8(&raw_str[0 .. terminator])
-        {
-            Ok(name) => match emu
-            {
-                game_data::Emulator::Bsnes => game_data::Games::bsnes_game_name(name),
-                game_data::Emulator::Mame => game_data::Games::mame_game_name(name),
-            }
-
-            Err(e) => panic!("failed to get convert game name to string: {e}"),
-        };
+        let game_name = get_game_name(&handle, &info, &emu);
 
         match game_name
         {
@@ -251,7 +236,12 @@ fn find_game(gui_state: &mut GuiState)
                 gui_state.offset = match emu
                 {
                     game_data::Emulator::Bsnes => 0xB16D7C,
-                    game_data::Emulator::Mame => get_mame_offset(&handle, game.mame_game_offset()),
+                    game_data::Emulator::Mame =>
+                    {
+                        let version = game_data::Emulator::get_mame_version(info.SizeOfImage);
+                        let offset_list = game_data::Emulator::mame_game_offset(version, game);
+                        get_mame_offset(&handle, info.lpBaseOfDll as u64, offset_list)
+                    }
                 };
             }
 
@@ -263,21 +253,59 @@ fn find_game(gui_state: &mut GuiState)
     }
 }
 
-fn get_mame_offset(handle: &HANDLE, offset_list: Vec<u64>) -> u64
+fn get_game_name(handle: &HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -> Option<game_data::Games>
 {
-    //sleep because getting the offset while mame is loading the game can fail
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    let mut raw_str = [0; 22];
+
+    let game_name_offset = match emu
+    {
+        game_data::Emulator::Bsnes => 0xB151E8 as *const c_void,
+        game_data::Emulator::Mame =>
+        {
+            let version = game_data::Emulator::get_mame_version(info.SizeOfImage);
+            let name_offset = game_data::Emulator::get_mame_name_offset(version);
+
+            (info.lpBaseOfDll as u64 + name_offset as u64) as *const c_void
+        }
+    };
 
     unsafe
     {
-        let mut first_module = HINSTANCE::default();
-        let mut lpcb_needed = 0;
-        K32EnumProcessModules(handle, &mut first_module, std::mem::size_of::<HINSTANCE>() as u32, &mut lpcb_needed);
+        let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
+        let mut count = 0;
+        ReadProcessMemory(handle, game_name_offset, p_raw_str, raw_str.len() - 1, &mut count);
+    }
 
-        let mut info = MODULEINFO::default();
-        K32GetModuleInformation(handle, first_module, &mut info, std::mem::size_of::<MODULEINFO>() as u32);
+    let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
 
-        let mut address = info.lpBaseOfDll as u64;
+    match std::str::from_utf8(&raw_str[0 .. terminator])
+    {
+        Ok(name) => match emu
+        {
+            game_data::Emulator::Bsnes => game_data::Games::bsnes_game_name(name),
+            game_data::Emulator::Mame => game_data::Games::mame_game_name(name),
+        }
+
+        Err(_) => None,
+    }
+}
+
+fn enum_processes() -> ([u32; 384], u32)
+{
+    let mut pid_list = [0; 384];
+    let mut pid_size = 0;
+    unsafe{ K32EnumProcesses(pid_list.as_mut_ptr(), pid_list.len() as u32 * 4, &mut pid_size); }
+
+    (pid_list, pid_size / 4)
+}
+
+fn get_mame_offset(handle: &HANDLE, dll_base: u64, offset_list: Vec<u64>) -> u64
+{
+    std::thread::sleep(std::time::Duration::from_secs(2)); //sleep because getting the offset while mame is loading the game can fail
+
+    unsafe
+    {
+        let mut address = dll_base;
 
         for offset in offset_list
         {
@@ -289,15 +317,6 @@ fn get_mame_offset(handle: &HANDLE, offset_list: Vec<u64>) -> u64
 
         address
     }
-}
-
-fn enum_processes() -> ([u32; 384], u32)
-{
-    let mut pid_list = [0; 384];
-    let mut pid_size = 0;
-    unsafe{ K32EnumProcesses(pid_list.as_mut_ptr(), pid_list.len() as u32 * 4, &mut pid_size); }
-
-    (pid_list, pid_size / 4)
 }
 
 fn update(gui_state: &mut GuiState)
