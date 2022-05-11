@@ -423,6 +423,8 @@ fn write_cfg(egui_state: &EguiState, gui_state: &GuiState)
     {
         window_size: egui_state.window_size,
 
+        timer_ticks: gui_state.timer_ticks,
+
         rank_window_pos: gui_state.graph.default_window_pos,
         //why is -12 necessary? probably doing something wrong
         rank_window_width: gui_state.graph.default_window_width - 12.0,

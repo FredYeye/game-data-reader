@@ -24,8 +24,8 @@ pub struct GuiState
     handle: HANDLE,
     offset: u64,
 
-    handle_timer: i8,
-    memory_read_timer: i8,
+    update_timer: i8,
+    timer_ticks: i8,
 
     graph: Graph,
     rank: u8,
@@ -38,6 +38,8 @@ struct Save
     window_size: (u32, u32),
     // window_pos: (u32, u32),
 
+    timer_ticks: i8,
+
     //rank graph
 	rank_window_pos: (f32, f32),
 	rank_window_width: f32,
@@ -46,6 +48,27 @@ struct Save
     color_g: (u8, u8),
     color_b: (u8, u8),
 	aspect: f32,
+}
+
+impl Default for Save
+{
+    fn default() -> Self
+    {
+        Self
+        {
+            window_size: (1024, 768),
+
+            timer_ticks: 100,
+
+            rank_window_pos: (20.0, 20.0),
+            rank_window_width: 450.0,
+            data_points: 240,
+            color_r: (  0, 255),
+            color_g: (255,   0),
+            color_b: (  0,   0),
+            aspect: 3.7,
+        }
+    }
 }
 
 struct Graph
@@ -67,18 +90,7 @@ fn main()
     }
     else
     {
-        Save
-        {
-            window_size: (1024, 768),
-
-            rank_window_pos: (20.0, 20.0),
-            rank_window_width: 450.0,
-            data_points: 240,
-            color_r: (0  , 255),
-            color_g: (255,   0),
-            color_b: (0  ,   0),
-            aspect: 3.7,
-        }
+        Save::default()
     };
 
     let el = EventLoop::new();
@@ -93,8 +105,8 @@ fn main()
         handle: HANDLE::default(),
         offset: 0,
 
-        handle_timer: 0,
-        memory_read_timer: 0,
+        update_timer: 0,
+        timer_ticks: save.timer_ticks,
 
         graph: Graph
         {
@@ -116,7 +128,7 @@ fn main()
 
     el.run(move |event, _, control_flow|
     {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(2));
 
         egui_glutin::event_handling(event, control_flow, &mut egui_state, &gui_state);
 
@@ -124,14 +136,22 @@ fn main()
         frame_time += current_time - last_time;
         last_time = current_time;
 
-        while frame_time >= std::time::Duration::from_micros(33333)
-        {
-            frame_time -= std::time::Duration::from_micros(33333);
+        let time = 20000;
 
-            match gui_state.current_game
+        while frame_time >= std::time::Duration::from_micros(time)
+        {
+            frame_time -= std::time::Duration::from_micros(time);
+
+            gui_state.update_timer -= 1;
+            if gui_state.update_timer < 0
             {
-                Some(_) => update(&mut gui_state),
-                None => find_game(&mut gui_state),
+                gui_state.update_timer = gui_state.timer_ticks;
+
+                match gui_state.current_game
+                {
+                    Some(_) => update(&mut gui_state),
+                    None => find_game(&mut gui_state),
+                }
             }
 
             egui_state.ctx.begin_frame(egui_state.raw_input.take());
@@ -156,13 +176,6 @@ fn main()
 
 fn find_game(gui_state: &mut GuiState)
 {
-    if gui_state.handle_timer > 0
-    {
-        gui_state.handle_timer -= 1;
-        return;
-    }
-    gui_state.handle_timer = 30;
-
     let mut emu_info = None;
 
     let (pid_list, pid_count) = enum_processes();
@@ -255,8 +268,6 @@ fn find_game(gui_state: &mut GuiState)
 
 fn get_game_name(handle: &HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -> Option<game_data::Games>
 {
-    let mut raw_str = [0; 22];
-
     let game_name_offset = match emu
     {
         game_data::Emulator::Bsnes => 0xB151E8 as *const c_void,
@@ -268,6 +279,8 @@ fn get_game_name(handle: &HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) 
             (info.lpBaseOfDll as u64 + name_offset as u64) as *const c_void
         }
     };
+
+    let mut raw_str = [0; 22];
 
     unsafe
     {
@@ -321,13 +334,6 @@ fn get_mame_offset(handle: &HANDLE, dll_base: u64, offset_list: Vec<u64>) -> u64
 
 fn update(gui_state: &mut GuiState)
 {
-    if gui_state.memory_read_timer > 0
-    {
-        gui_state.memory_read_timer -= 1;
-        return;
-    }
-    gui_state.memory_read_timer = 60; //30 = 1s
-
     //check if game window is closed. not perfect as user can load other game without closing the emulator
     //todo: check for string again probably
     let mut exit_code = 0;
@@ -461,12 +467,26 @@ fn create_ui(ctx: &mut Context, gui_state: &mut GuiState)
         gui_state.graph.default_window_pos = (pos.min.x, pos.min.y);
         gui_state.graph.default_window_width = pos.max.x;
     }
-    else
+
+    egui::Window::new("Game data reader").show(ctx, |ui|
     {
-        egui::Window::new("Game data reader").show(ctx, |ui|
+        ui.horizontal(|ui|
         {
-            ui.label("Searching for supported games...");
-            ui.label("Once a game has been found, data will be shown automatically!");
+            ui.add
+            (
+                egui::DragValue::new(&mut gui_state.timer_ticks)
+                .speed(0.23)
+                .clamp_range(5 ..= 125)
+                .prefix("Ticks/update: ")
+            );
+
+            ui.label(format!("({:.2} updates/sec)", 50.0 / gui_state.timer_ticks as f32));
         });
-    }
+
+        if gui_state.current_game.is_none()
+        {
+            ui.label("\nSearching for supported games...");
+            ui.label("Once a game has been found, data will be shown automatically!");
+        }
+    });
 }
