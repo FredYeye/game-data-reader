@@ -56,11 +56,16 @@ impl Emulator
     }
 }
 
+pub enum DataTypes
+{
+    Rank{offset: u16, values: u8},
+    SmashTV,
+}
+
 pub struct GameData
 {
     pub id: Games,
-    pub rank_offset: u16,
-    pub rank_values: u8,
+    pub data_type: DataTypes,
 }
 
 #[derive(PartialEq)]
@@ -68,6 +73,8 @@ pub enum Games
 {
     Gradius3Snes,
     ParodiusSnes,
+    SmashTVSnes,
+
     GhoulsArcade,
     Gradius3Arcade,
 }
@@ -89,6 +96,7 @@ impl Games
         {
             "gradius 3" | "GRADIUS 3" => Some(Games::Gradius3Snes),
             "PARODIUS" => Some(Games::ParodiusSnes),
+            "SMASH T.V." => Some(Games::SmashTVSnes),
             _ => None,
         }
     }
@@ -110,29 +118,31 @@ impl Games
             Self::Gradius3Snes => GameData
             {
                 id: Games::Gradius3Snes,
-                rank_offset: 0x0084,
-                rank_values: 16,
+                data_type: DataTypes::Rank{offset: 0x0084, values: 16},
             },
 
             Self::ParodiusSnes => GameData
             {
                 id: Games::ParodiusSnes,
-                rank_offset: 0x0088,
-                rank_values: 32,
+                data_type: DataTypes::Rank{offset: 0x0088, values: 32},
+            },
+
+            Self::SmashTVSnes => GameData
+            {
+                id: Games::SmashTVSnes,
+                data_type: DataTypes::SmashTV,
             },
 
             Self::GhoulsArcade => GameData
             {
                 id: Games::GhoulsArcade,
-                rank_offset: 0x092A,
-                rank_values: 16,
+                data_type: DataTypes::Rank{offset: 0x092A, values: 16},
             },
 
             Self::Gradius3Arcade => GameData
             {
                 id: Games::Gradius3Arcade,
-                rank_offset: 0x39C0,
-                rank_values: 16,
+                data_type: DataTypes::Rank{offset: 0x39C0, values: 16},
             },
         }
     }

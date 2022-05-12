@@ -24,9 +24,50 @@ pub struct EguiState
     window_size: (u32, u32),
 }
 
+pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState
+{
+    let wb = glutin::window::WindowBuilder::new()
+    .with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1))
+    .with_title("Game data reader 0.7");
+
+    let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
+    let windowed_context = unsafe{windowed_context.make_current().unwrap()};
+
+    gl::load_with(|symbol| windowed_context.get_proc_address(symbol));
+    unsafe
+    {
+        gl::Enable(gl::BLEND);
+        gl::Disable(gl::DEPTH_TEST);
+        gl::Disable(gl::STENCIL_TEST);
+        gl::Disable(gl::CULL_FACE);
+        gl::Enable(gl::SCISSOR_TEST);
+    }
+
+    let (vao_e, vbo_e) = setup_vertex_arrays_egui();
+    let vert_e = include_str!("shader_e.vert");
+    let frag_e = include_str!("shader_e.frag");
+
+    EguiState
+    {
+        windowed_context: windowed_context,
+
+        ctx: egui::Context::default(),
+        pos_in_points: None,
+        raw_input: egui::RawInput::default(),
+
+        vao: vao_e,
+        vbo: vbo_e,
+        tex: setup_texture_egui(),
+        shader: create_program(vert_e, frag_e),
+
+        buffer_size: 0,
+
+        window_size: window_size,
+    }
+}
+
 pub fn paint_egui(clipped_primitives: Vec<egui::ClippedPrimitive>, egui_state: &mut EguiState)
 {
-    //todo: pass in window size
     unsafe
     {
         gl::Scissor(0, 0, egui_state.window_size.0 as i32, egui_state.window_size.1 as i32);
@@ -377,46 +418,6 @@ fn is_printable_char(chr: char) -> bool
     !is_in_private_use_area && !chr.is_ascii_control()
 }
 
-pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState
-{
-    let wb = glutin::window::WindowBuilder::new().with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1)).with_title("Game data reader");
-
-    let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
-    let windowed_context = unsafe{windowed_context.make_current().unwrap()};
-
-    gl::load_with(|symbol| windowed_context.get_proc_address(symbol));
-    unsafe
-    {
-        gl::Enable(gl::BLEND);
-        gl::Disable(gl::DEPTH_TEST);
-        gl::Disable(gl::STENCIL_TEST);
-        gl::Disable(gl::CULL_FACE);
-        gl::Enable(gl::SCISSOR_TEST);
-    }
-
-    let (vao_e, vbo_e) = setup_vertex_arrays_egui();
-    let vert_e = include_str!("shader_e.vert");
-    let frag_e = include_str!("shader_e.frag");
-
-    EguiState
-    {
-        windowed_context: windowed_context,
-
-        ctx: egui::Context::default(),
-        pos_in_points: None,
-        raw_input: egui::RawInput::default(),
-
-        vao: vao_e,
-        vbo: vbo_e,
-        tex: setup_texture_egui(),
-        shader: create_program(vert_e, frag_e),
-
-        buffer_size: 0,
-
-        window_size: window_size,
-    }
-}
-
 fn write_cfg(egui_state: &EguiState, gui_state: &GuiState)
 {
     let save = crate::Save
@@ -426,8 +427,7 @@ fn write_cfg(egui_state: &EguiState, gui_state: &GuiState)
         timer_ticks: gui_state.timer_ticks,
 
         rank_window_pos: gui_state.graph.default_window_pos,
-        //why is -12 necessary? probably doing something wrong
-        rank_window_width: gui_state.graph.default_window_width - 12.0,
+        rank_window_width: gui_state.graph.default_window_width - 12.0, //why is -12 necessary? probably doing something wrong
         color_r: (gui_state.graph.color_start[0], gui_state.graph.color_end[0]),
         color_g: (gui_state.graph.color_start[1], gui_state.graph.color_end[1]),
         color_b: (gui_state.graph.color_start[2], gui_state.graph.color_end[2]),
