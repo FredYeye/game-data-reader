@@ -6,8 +6,7 @@ use std::{ffi::{CString, c_void}, ptr, str::from_utf8};
 
 use crate::GuiState;
 
-pub struct EguiState
-{
+pub struct EguiState{
     pub windowed_context: ContextWrapper<PossiblyCurrent, glutin::window::Window>,
 
     pub ctx: egui::Context,
@@ -24,8 +23,7 @@ pub struct EguiState
     window_size: (u32, u32),
 }
 
-pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState
-{
+pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState {
     let wb = glutin::window::WindowBuilder::new()
     .with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1))
     .with_title("Game data reader 0.7");
@@ -431,7 +429,7 @@ fn write_cfg(egui_state: &EguiState, gui_state: &GuiState)
         color_r: (gui_state.graph.color_start[0], gui_state.graph.color_end[0]),
         color_g: (gui_state.graph.color_start[1], gui_state.graph.color_end[1]),
         color_b: (gui_state.graph.color_start[2], gui_state.graph.color_end[2]),
-        data_points: gui_state.graph.values.len(),
+        data_point_len: gui_state.graph.data_point_len,
         aspect: gui_state.graph.aspect,
     };
 
