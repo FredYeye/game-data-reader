@@ -85,6 +85,7 @@ pub fn find_game() -> Option<CurrentGame> {
 
         if emu == game_data::Emulator::Mame {
             if game_data::Emulator::get_mame_version(info.SizeOfImage) == 0 {
+                // println!("{:X}", info.SizeOfImage);
                 return None; //unsupported mame version. kinda bootleg way to do this
             }
         }
@@ -127,15 +128,7 @@ fn enum_processes() -> ([u32; 384], u32) {
 }
 
 fn get_game_name(handle: HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -> Option<game_data::Games> {
-    let game_name_offset = match emu {
-        game_data::Emulator::Bsnes => 0xB151E8 as *const c_void,
-        game_data::Emulator::Mame => {
-            let version = game_data::Emulator::get_mame_version(info.SizeOfImage);
-            let name_offset = game_data::Emulator::get_mame_name_offset(version);
-
-            (info.lpBaseOfDll as u64 + name_offset as u64) as *const c_void
-        }
-    };
+    let game_name_offset = emu.name_offset(info.SizeOfImage, info.lpBaseOfDll as u64) as *const c_void;
 
     let mut raw_str = [0; 22];
 
@@ -148,11 +141,7 @@ fn get_game_name(handle: HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -
     let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
 
     match std::str::from_utf8(&raw_str[0 .. terminator]) {
-        Ok(name) => match emu {
-            game_data::Emulator::Bsnes => game_data::Games::bsnes_game_name(name),
-            game_data::Emulator::Mame => game_data::Games::mame_game_name(name),
-        }
-
+        Ok(name) => emu.game_name(name),
         Err(_) => None,
     }
 }
