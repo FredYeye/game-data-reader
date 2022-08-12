@@ -7,24 +7,24 @@ pub enum Emulator {
 }
 
 impl Emulator {
-    pub fn name_offset(&self, size_of_image: u32, lp_base_of_dll: u64) -> u64 {
+    pub fn name_offset(&self, size_of_image: u32, lp_base_of_dll: u64) -> Result<u64, ()> {
         match self {
-            Emulator::Bsnes => 0xB151E8,
-            Emulator::Mame => {
-                let version = Self::get_mame_version(size_of_image);
-                let name_offset = Self::get_mame_name_offset(version);
+            Emulator::Bsnes => Ok(0xB151E8),
 
-                lp_base_of_dll + name_offset as u64
+            Emulator::Mame => {
+                let version = Self::get_mame_version(size_of_image)?;
+                let name_offset = Self::get_mame_name_offset(version);
+                Ok(lp_base_of_dll + name_offset as u64)
             }
         }
     }
 
-    pub fn get_mame_version(module_size: u32) -> u16 {
+    pub fn get_mame_version(module_size: u32) -> Result<u16, ()> {
         match module_size {
-            0x129FB000 => 242,
-            0x12A82000 => 243,
-            0x12C81000 => 246,
-            _ => 0, //unsupported version
+            0x129FB000 => Ok(242),
+            0x12A82000 => Ok(243),
+            0x12C81000 => Ok(246),
+            _ => Err(()), //unsupported version
         }
     }
 
@@ -37,29 +37,30 @@ impl Emulator {
         }
     }
 
-    pub fn mame_game_offset(version: u16, games: Games) -> Vec<u64> {
+    pub fn mame_game_offset(version: u16, games: Games) -> Option<Vec<u64>> {
         match version {
             242 => {
                 match games {
-                    Games::GhoulsArcade => vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18],
-                    Games::Gradius3Arcade => vec![0x11B72B48, 0x38, 0x150, 0x08, 0x10],
-                    _ => todo!(),
+                    Games::GhoulsArcade => Some(vec![0x11B72B48, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18]),
+                    Games::Gradius3Arcade => Some(vec![0x11B72B48, 0x38, 0x150, 0x08, 0x10]),
+                    _ => None,
                 }
             }
 
             243 => {
                 match games {
-                    Games::GhoulsArcade => vec![0x11BF4390, 0x08, 0x10, 0x38, 0x40, 0x80, 0x18, 0x80, 0x18],
-                    Games::Gradius3Arcade => vec![0x11BF4390, 0x28, 0x150, 0x08, 0x10],
-                    _ => todo!(),
+                    Games::GhoulsArcade => Some(vec![0x11BF4390, 0x08, 0x10, 0x38, 0x40, 0x80, 0x18, 0x80, 0x18]),
+                    Games::Gradius3Arcade => Some(vec![0x11BF4390, 0x28, 0x150, 0x08, 0x10]),
+                    _ => None,
                 }
             }
 
             246 => {
                 match games {
-                    Games::SpangArcade => vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x70, 0xB8],
-                    // 0x11DE8BD0 0x08 0x10 0x28 0x70 0xB8 0xD2
-                    _ => todo!(),
+                    Games::GhoulsArcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18]),
+                    Games::Gradius3Arcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x10]),
+                    Games::SpangArcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x70, 0xB8]), //alt: 0x11DE8BD0 0x08 0x10 0x28 0x70 0xB8
+                    _ => None,
                 }
             }
 
@@ -80,6 +81,7 @@ impl Emulator {
 
             Emulator::Mame => {
                 match name {
+                    // "gradius" => Some(Games::GradiusArcade),
                     "gradius3" | "gradius3a" | "gradius3j" | "gradius3js" => Some(Games::Gradius3Arcade),
                     "ghouls" | "ghoulsu" | "daimakai" | "daimakair" => Some(Games::GhoulsArcade),
                     "spang" | "spangj" | "sbbros" => Some(Games::SpangArcade),
@@ -101,6 +103,7 @@ pub enum Games {
     SmashTVSnes,
 
     GhoulsArcade,
+    // GradiusArcade,
     Gradius3Arcade,
     SpangArcade,
 }
@@ -160,6 +163,17 @@ impl Games {
                     }
                 ),
             },
+
+            // Self::GradiusArcade => GameData {
+            //     id: Games::GradiusArcade,
+            //     data_type: DataTypes::Rank(
+            //         Rank {
+            //             data_points: std::collections::VecDeque::new(),
+            //             offset: 0x0102A1 + 0x30b,
+            //             steps: 16,
+            //         }
+            //     ),
+            // },
 
             Self::Gradius3Arcade => GameData {
                 id: Games::Gradius3Arcade,

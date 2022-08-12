@@ -83,26 +83,32 @@ pub fn find_game() -> Option<CurrentGame> {
         let mut info = MODULEINFO::default();
         unsafe{ K32GetModuleInformation(handle, first_module, &mut info, std::mem::size_of::<MODULEINFO>() as u32); }
 
-        if emu == game_data::Emulator::Mame {
-            if game_data::Emulator::get_mame_version(info.SizeOfImage) == 0 {
-                // println!("{:X}", info.SizeOfImage);
-                return None; //unsupported mame version. kinda bootleg way to do this
-            }
-        }
-
-        let game_name = get_game_name(handle, &info, &emu);
-
-        match game_name {
+        match get_game_name(handle, &info, &emu) {
             Some(game) => {
                 Some(CurrentGame {
                     game: game.game_info(),
                     handle: handle,
                     offset: match emu {
                         game_data::Emulator::Bsnes => 0xB16D7C,
+
                         game_data::Emulator::Mame => {
-                            let version = game_data::Emulator::get_mame_version(info.SizeOfImage);
-                            let offset_list = game_data::Emulator::mame_game_offset(version, game);
-                            get_mame_offset(handle, info.lpBaseOfDll as u64, offset_list)
+                            match game_data::Emulator::get_mame_version(info.SizeOfImage) {
+                                Ok(version) => {
+                                    match game_data::Emulator::mame_game_offset(version, game) {
+                                        Some(offset_list) => get_mame_offset(handle, info.lpBaseOfDll as u64, offset_list),
+                                        None => {
+                                            unsafe{ CloseHandle(handle); }
+                                            return None; //unsupported mame version. kinda bootleg way to do this
+                                        }
+                                    }
+                                }
+
+                                Err(_) => {
+                                    println!("{:X}", info.SizeOfImage);
+                                    unsafe{ CloseHandle(handle); }
+                                    return None; //unsupported mame version. kinda bootleg way to do this
+                                }
+                            }
                         }
                     },
                 })
@@ -128,7 +134,10 @@ fn enum_processes() -> ([u32; 384], u32) {
 }
 
 fn get_game_name(handle: HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -> Option<game_data::Games> {
-    let game_name_offset = emu.name_offset(info.SizeOfImage, info.lpBaseOfDll as u64) as *const c_void;
+    let game_name_offset = match emu.name_offset(info.SizeOfImage, info.lpBaseOfDll as u64) {
+        Ok(offset) => offset as *const c_void,
+        Err(_) => return None,
+    };
 
     let mut raw_str = [0; 22];
 

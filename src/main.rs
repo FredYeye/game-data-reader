@@ -202,7 +202,7 @@ fn rank_graph(ctx: &mut Context, gui_state: &mut GuiState, rank: &mut update::Ra
 
             for x in 0 .. 3 {
                 let diff = gui_state.graph.color_end[x] as f32 - gui_state.graph.color_start[x] as f32;
-                
+
                 let step = match diff == 0.0 {
                     false => diff / (rank.steps - 1) as f32,
                     true => 0.0,
