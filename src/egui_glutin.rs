@@ -26,7 +26,7 @@ pub struct EguiState {
 pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState {
     let wb = glutin::window::WindowBuilder::new()
     .with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1))
-    .with_title("Game data reader 0.8");
+    .with_title("Game data reader 0.7");
 
     let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
     let windowed_context = unsafe{windowed_context.make_current().unwrap()};
