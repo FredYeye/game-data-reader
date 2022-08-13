@@ -58,6 +58,7 @@ impl Emulator {
             246 => {
                 match games {
                     Games::GhoulsArcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x18]),
+                    Games::Gradius2Arcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x08]),
                     Games::Gradius3Arcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x38, 0x60, 0x18, 0x80, 0x10]),
                     Games::SpangArcade => Some(vec![0x11DE8A68, 0x08, 0x10, 0x28, 0x70, 0xB8]), //alt: 0x11DE8BD0 0x08 0x10 0x28 0x70 0xB8
                     _ => None,
@@ -82,6 +83,7 @@ impl Emulator {
             Emulator::Mame => {
                 match name {
                     // "gradius" => Some(Games::GradiusArcade),
+                    "gradius2" | "vulcan" => Some(Games::Gradius2Arcade),
                     "gradius3" | "gradius3a" | "gradius3j" | "gradius3js" => Some(Games::Gradius3Arcade),
                     "ghouls" | "ghoulsu" | "daimakai" | "daimakair" => Some(Games::GhoulsArcade),
                     "spang" | "spangj" | "sbbros" => Some(Games::SpangArcade),
@@ -104,6 +106,7 @@ pub enum Games {
 
     GhoulsArcade,
     // GradiusArcade,
+    Gradius2Arcade,
     Gradius3Arcade,
     SpangArcade,
 }
@@ -174,6 +177,17 @@ impl Games {
             //         }
             //     ),
             // },
+
+            Self::Gradius2Arcade => GameData {
+                id: Games::Gradius2Arcade,
+                data_type: DataTypes::Rank(
+                    Rank {
+                        data_points: std::collections::VecDeque::new(),
+                        offset: 0x041D,
+                        steps: 16,
+                    }
+                ),
+            },
 
             Self::Gradius3Arcade => GameData {
                 id: Games::Gradius3Arcade,
