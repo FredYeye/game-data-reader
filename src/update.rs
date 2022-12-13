@@ -143,8 +143,7 @@ fn get_game_name(handle: HANDLE, info: &MODULEINFO, emu: &game_data::Emulator) -
 
     unsafe {
         let p_raw_str = raw_str.as_mut_ptr() as *mut _ as *mut c_void;
-        let mut count = 0;
-        ReadProcessMemory(handle, game_name_offset, p_raw_str, raw_str.len() - 1, &mut count);
+        ReadProcessMemory(handle, game_name_offset, p_raw_str, raw_str.len() - 1, None);
     }
 
     let terminator = raw_str.into_iter().position(|x| x == 0).unwrap();
@@ -164,8 +163,7 @@ fn get_mame_offset(handle: HANDLE, dll_base: u64, offset_list: Vec<u64>) -> u64 
         for offset in offset_list {
             let base = (address + offset) as *const c_void;
             let p_address = &mut address as *mut _ as *mut c_void;
-            let mut count = 0;
-            ReadProcessMemory(handle, base, p_address, 8, &mut count);
+            ReadProcessMemory(handle, base, p_address, 8, None);
         }
 
         address
@@ -194,8 +192,7 @@ fn update_rank(rank: &mut Rank, game: &game_data::Games, handle: HANDLE, base_of
     unsafe {
         let base = (base_offset + rank.offset as u64) as *const c_void;
         let p_rank = &mut temp_rank as *mut _ as *mut c_void;
-        let mut count = 0;
-        ReadProcessMemory(handle, base, p_rank, 1, &mut count);
+        ReadProcessMemory(handle, base, p_rank, 1, None);
     }
 
     temp_rank = game.format_rank(temp_rank);
@@ -217,8 +214,7 @@ fn update_smash_tv(smash_tv: &mut SmashTV, handle: HANDLE, base_offset: u64) {
     unsafe {
         let base = (base_offset + 0x1902) as *const c_void;
         let p_rank = temp.as_mut_ptr() as *mut _ as *mut c_void;
-        let mut count = 0;
-        ReadProcessMemory(handle, base, p_rank, LIST_COUNT, &mut count);
+        ReadProcessMemory(handle, base, p_rank, LIST_COUNT, None);
     }
 
     let mut temp2 = 0;
@@ -226,8 +222,7 @@ fn update_smash_tv(smash_tv: &mut SmashTV, handle: HANDLE, base_offset: u64) {
     unsafe {
         let base = (base_offset + 0x18E4) as *const c_void;
         let p_rank = &mut temp2 as *mut _ as *mut c_void;
-        let mut count = 0;
-        ReadProcessMemory(handle, base, p_rank, 1, &mut count);
+        ReadProcessMemory(handle, base, p_rank, 1, None);
     }
 
     smash_tv.active_enemies[0] = temp2;

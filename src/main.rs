@@ -1,8 +1,9 @@
 #![windows_subsystem = "windows"]
 
-use egui::{Context, plot::{Plot, Line, Values as EguiValues, LineStyle}, Color32, RichText};
-use glutin::event_loop::{ControlFlow, EventLoop};
+use egui::{Context, plot::{Plot, Line, LineStyle, PlotPoints}, Color32, RichText};
+use glutin::surface::GlSurface;
 use update::CurrentGame;
+use winit::event_loop::{EventLoop, ControlFlow};
 
 mod egui_glutin;
 mod game_data;
@@ -89,6 +90,8 @@ fn main() {
         },
     };
 
+    egui_state.ctx.set_pixels_per_point(2.0);
+
     let mut current_game = None;
 
     el.run(move |event, _, control_flow| {
@@ -130,6 +133,7 @@ fn main() {
                 }
             }
 
+
             egui_state.ctx.begin_frame(egui_state.raw_input.take());
 
             create_ui(&mut egui_state.ctx, &mut gui_state, &mut current_game); // add panels, windows and widgets to `egui_ctx` here
@@ -144,7 +148,7 @@ fn main() {
                 todo!();
             }
 
-            egui_state.windowed_context.swap_buffers().unwrap();
+            egui_state.glutin_state.gl_surface.swap_buffers(&egui_state.glutin_state.gl_ctx).unwrap();
         }
     });
 }
@@ -212,7 +216,7 @@ fn rank_graph(ctx: &mut Context, gui_state: &mut GuiState, rank: &mut update::Ra
             }
 
             plot_ui.line(
-                Line::new(EguiValues::from_ys_f32(rank.data_points.as_slices().0))
+                Line::new(PlotPoints::from_ys_f32(rank.data_points.as_slices().0))
                 .color(Color32::from_rgb(rgb[0], rgb[1], rgb[2]))
                 .style(LineStyle::Solid)
             )

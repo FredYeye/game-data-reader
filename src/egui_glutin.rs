@@ -1,13 +1,20 @@
 use egui::{Modifiers, RawInput};
-use glutin::{ContextWrapper, PossiblyCurrent};
-use glutin::event_loop::ControlFlow;
-use glutin::event::*;
+use glutin::{context::PossiblyCurrentContext, surface::{Surface, WindowSurface, SurfaceAttributesBuilder, GlSurface}, prelude::{GlConfig, GlDisplay, NotCurrentGlContextSurfaceAccessor}, display::GetGlDisplay};
+use raw_window_handle::HasRawWindowHandle;
+use winit::{event::{VirtualKeyCode, Event, WindowEvent, ElementState}, event_loop::ControlFlow};
 use std::{ffi::{CString, c_void}, ptr, str::from_utf8};
 
 use crate::GuiState;
 
+pub struct GlutinState {
+    pub window: winit::window::Window,
+    pub gl_ctx: PossiblyCurrentContext,
+    pub gl_display: glutin::display::Display,
+    pub gl_surface: Surface<WindowSurface>,
+}
+
 pub struct EguiState {
-    pub windowed_context: ContextWrapper<PossiblyCurrent, glutin::window::Window>,
+    pub glutin_state: GlutinState,
 
     pub ctx: egui::Context,
     pub pos_in_points: Option<egui::Pos2>,
@@ -23,15 +30,52 @@ pub struct EguiState {
     window_size: (u32, u32),
 }
 
-pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState {
-    let wb = glutin::window::WindowBuilder::new()
-    .with_inner_size(glutin::dpi::LogicalSize::new(window_size.0, window_size.1))
-    .with_title("Game data reader 0.8");
+pub fn setup_egui_glutin(el: &winit::event_loop::EventLoop<()>, window_size: (u32, u32)) -> EguiState {
+    let wb = winit::window::WindowBuilder::new()
+    .with_inner_size(winit::dpi::LogicalSize::new(window_size.0, window_size.1))
+    .with_title("Game data reader 0.9");
 
-    let windowed_context = glutin::ContextBuilder::new().build_windowed(wb, &el).unwrap();
-    let windowed_context = unsafe{windowed_context.make_current().unwrap()};
+    let (window, gl_config) = glutin_winit::DisplayBuilder::new()
+        .with_window_builder(Some(wb))
+        .build(&el, <_>::default(), |configs| {
+            configs
+                .filter(|c| c.srgb_capable())
+                .max_by_key(|c| c.num_samples())
+                .unwrap()
+        }).unwrap();
 
-    gl::load_with(|symbol| windowed_context.get_proc_address(symbol));
+        let window = window.unwrap();
+        let raw_window_handle = window.raw_window_handle();
+        let gl_display = gl_config.display();
+
+        let context_attributes = glutin::context::ContextAttributesBuilder::new()
+            .with_profile(glutin::context::GlProfile::Core)
+            .with_context_api(glutin::context::ContextApi::OpenGl(Some(
+                glutin::context::Version::new(4, 5),
+            )))
+            .build(Some(raw_window_handle));
+
+        let (gl_surface, gl_ctx) = {
+            let attrs = SurfaceAttributesBuilder::<glutin::surface::WindowSurface>::new().build(
+                raw_window_handle,
+                std::num::NonZeroU32::new(window_size.0).unwrap(),
+                std::num::NonZeroU32::new(window_size.1).unwrap(),
+            );
+
+            let surface = unsafe { match gl_display.create_window_surface(&gl_config, &attrs) {
+                Ok(o) => o,
+                Err(_) => todo!("omg"),
+            }};
+
+            let context = unsafe { match gl_display.create_context(&gl_config, &context_attributes) {
+                Ok(o) => o,
+                Err(_) => todo!("omg"),
+            }}.make_current(&surface).unwrap();
+            (surface, context)
+        };
+
+        gl::load_with(|symbol| (gl_display.get_proc_address(&CString::new(symbol).unwrap()) as _));
+
     unsafe {
         gl::Enable(gl::BLEND);
         gl::Disable(gl::DEPTH_TEST);
@@ -45,7 +89,12 @@ pub fn setup_egui_glutin(el: &glutin::event_loop::EventLoop<()>, window_size: (u
     let frag_e = include_str!("shader_e.frag");
 
     EguiState {
-        windowed_context: windowed_context,
+        glutin_state: GlutinState {
+            window: window,
+            gl_ctx: gl_ctx,
+            gl_display: gl_display,
+            gl_surface: gl_surface,
+        },
 
         ctx: egui::Context::default(),
         pos_in_points: None,
@@ -274,7 +323,7 @@ fn compile_shader(source: &str, shader_type: u32) -> u32 {
     }
 }
 
-pub fn update_textures(tex_set: egui::epaint::ahash::AHashMap<egui::TextureId, egui::epaint::ImageDelta>, tex_e: u32) {
+pub fn update_textures(tex_set: Vec<(egui::TextureId, egui::epaint::ImageDelta)>, tex_e: u32) {
     for (id, image_delta) in &tex_set {
         let pixels: Vec<(u8, u8, u8, u8)> = match &image_delta.image {
             egui::ImageData::Color(image) => {
@@ -283,7 +332,7 @@ pub fn update_textures(tex_set: egui::epaint::ahash::AHashMap<egui::TextureId, e
 
             egui::ImageData::Font(image) => {
                 let gamma = 1.0;
-                image.srgba_pixels(gamma).map(|color| color.to_tuple()).collect()
+                image.srgba_pixels(Some(gamma)).map(|color| color.to_tuple()).collect()
             }
         };
 
@@ -448,9 +497,9 @@ pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_sta
                 WindowEvent::MouseInput{state, button, ..} => {
                     if let Some(pos_in_points_temp) = egui_state.pos_in_points {
                         if let Some(button) = match button {
-                                glutin::event::MouseButton::Left => Some(egui::PointerButton::Primary),
-                                glutin::event::MouseButton::Right => Some(egui::PointerButton::Secondary),
-                                glutin::event::MouseButton::Middle => Some(egui::PointerButton::Middle),
+                                winit::event::MouseButton::Left => Some(egui::PointerButton::Primary),
+                                winit::event::MouseButton::Right => Some(egui::PointerButton::Secondary),
+                                winit::event::MouseButton::Middle => Some(egui::PointerButton::Middle),
                                 _ => None,
                             }
                         {
@@ -459,8 +508,8 @@ pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_sta
                                     pos: pos_in_points_temp,
                                     button,
                                     pressed: match state {
-                                        glutin::event::ElementState::Pressed => true,
-                                        glutin::event::ElementState::Released => false,
+                                        winit::event::ElementState::Pressed => true,
+                                        winit::event::ElementState::Released => false,
                                     },
                                     modifiers: Modifiers::default(),
                                 }
@@ -469,8 +518,20 @@ pub fn event_handling(event: Event<()>, control_flow: &mut ControlFlow, egui_sta
                     }
                 }
 
+                WindowEvent::MouseWheel {delta, ..} => {
+                    if let winit::event::MouseScrollDelta::LineDelta(_, y) = delta {
+                        egui_state.raw_input.events.push(
+                            egui::Event::Scroll(egui::vec2(0.0, y * 35.0))
+                        );
+                    }
+                }
+
                 WindowEvent::Resized(physical_size) => {
-                    egui_state.windowed_context.resize(physical_size);
+                    egui_state.glutin_state.gl_surface.resize(
+                        &egui_state.glutin_state.gl_ctx,
+                        std::num::NonZeroU32::new(physical_size.width).unwrap(),
+                        std::num::NonZeroU32::new(physical_size.width).unwrap(),
+                    );
                     egui_state.window_size = (physical_size.width, physical_size.height);
 
                     unsafe {

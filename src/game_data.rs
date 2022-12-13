@@ -184,7 +184,9 @@ impl Games {
                     Rank {
                         data_points: std::collections::VecDeque::new(),
                         offset: 0x041D,
-                        steps: 16,
+                        steps: 17,
+                        //todo: what's the valid range? starting rank on normal difficulty is 2, demo 0.
+                        //      max rank appears to be 16. 0-16? unusual
                     }
                 ),
             },
@@ -195,7 +197,9 @@ impl Games {
                     Rank {
                         data_points: std::collections::VecDeque::new(),
                         offset: 0x39C0,
-                        steps: 16,
+                        steps: 17,
+                        //todo: valid range? 0-16?
+                        //      if 39C3 != 0, then the range is 0-31!
                     }
                 ),
             },

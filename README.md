@@ -24,3 +24,4 @@ Super Pang       | 0.246
 - [ ] add some cool example screenshot  
 - [ ] support for gradius 1 arcade  
 - [ ] support for smash tv snes (enemy type/count)  
+gradius 3 (arcade) can extend the rank range (0-16 -> 0-31). maybe a loop 2 thing? consider supporting this.  
